@@ -1,0 +1,95 @@
+Source Folder ID,Current Path,Action,Target Path,New Name,Reason,Status,Result,Confidence
+11m2TqVgf4IZAWTtMe2RiCKEd3tJMgQD7,/Meta Pragati,MOVE,05 ORGANISATIONS/_Programme docs,Meta Pragati AI for Impact,Becomes the programme folder. FY/cohort folders go inside,,,M
+199yuvxTSVhx7AdOA25r5Yx7tHVP6C6Zc,/Incubator,MOVE,05 ORGANISATIONS/_Programme docs,,Programme,,,H
+1Fhz5S1ZLrvDknyCnJZwoQ-Fcgy7mGrFt,/Accelerator,MOVE,05 ORGANISATIONS/_Programme docs,,Programme,,,H
+1HQ_ypsTBgxwAohcRxygRaMU3Ww0Fmef_,/AlumConnect,MOVE,05 ORGANISATIONS/_Programme docs,,Alumni programme,,,M
+1dWAKSPxmTS9FZo15YsYVwys4v1CPgyXa,/Launchpad ,MOVE,05 ORGANISATIONS/_Programme docs,Launchpad,Programme. Trailing space removed,,,M
+1TtpKxdvdtJuWndJR0TiUN8VcgNLmkAcj,/Skill Uplift Organisation Notes,MOVE,05 ORGANISATIONS/_Programme docs,Skill Uplift,Looks like a programme. Notes per org may belong in org folders,,,L
+1WTM-Ihcii_XR9gPRdUKQg1vuOf81gPfQ,/Project Pioneer,MOVE,05 ORGANISATIONS/_Programme docs,,Assumed to be a programme. Confirm,,,L
+1glQ4x4U_f4jAur0HetjK82Q98Lb7uCSX,/Meta Pragati AI for Impact FY 25,MOVE,05 ORGANISATIONS/_Programme docs/Meta Pragati AI for Impact,FY25,Programme > year,,,H
+1FRkwe8-oICqggftjBQ_Hvg-lnN0C1y0g,/Meta Pragati AI for Impact FY 25 (duplicate),MERGE,05 ORGANISATIONS/_Programme docs/Meta Pragati AI for Impact/FY25,,DUPLICATE of the row above (same name and modified date). Check it is a copy before merging,,,M
+172ytpYnHmeCX5Tly_eGidIa0VOPUM0qM,/Meta Pragati AI for Impact FY 26,MOVE,05 ORGANISATIONS/_Programme docs/Meta Pragati AI for Impact,FY26,Programme > year,,,H
+13VuZ36Okvp7tBcrTs-0kUrrpwTDEgh8j,/Meta Pragati AI for Impact FY 27,MOVE,05 ORGANISATIONS/_Programme docs/Meta Pragati AI for Impact,FY27,Programme > year,,,H
+1wdJz2J38ZyojsJgWNq0JtYv3P5zXmn0V,/Pragati AI for Impact 3 Applications,MOVE,05 ORGANISATIONS/_Programme docs/Meta Pragati AI for Impact/FY27,Applications,Assumes cohort 3 = FY27. Confirm,,,M
+1JVeNGiEApBDns3dObtj8y3Gi2xYTpj95,/Pragati Backend documents,MOVE,05 ORGANISATIONS/_Programme docs/Meta Pragati AI for Impact,Backend documents,Programme-level docs,,,M
+1-hQqJEFU1SrfdBmhqrljLMHgYGfgUOmY,/DATA ROOM: Meta Pragati <> Deloitte,MOVE,05 ORGANISATIONS/_Programme docs/Meta Pragati AI for Impact,Data room - Deloitte,Original stays with the programme,,,M
+1-hQqJEFU1SrfdBmhqrljLMHgYGfgUOmY,/DATA ROOM: Meta Pragati <> Deloitte,SHORTCUT,02 RESEARCH & IMPACT/Data rooms,Meta Pragati - Deloitte,Data rooms hold shortcuts only,,,H
+1MQf7oYrgix7Rpd2jjz9WPcZiThZvVmtJ,/Accelerator Cohort A/1 (Series/N),MOVE,05 ORGANISATIONS/_Programme docs/Accelerator,Cohort A1 (Series N),Programme > cohort. Slashes removed from name,,,M
+1rihP-WoktKxK41ZVi7QBXFW_U4gBToih,/Cohort books,MOVE,05 ORGANISATIONS/_Programme docs,Cohort books (to split by programme),Cohort books belong in each programme/cohort folder. Split by hand,,,M
+1taGIipmDS4jL8VwcSrLw8PZY4Mmf5wij,/Knowledge Sessions,MOVE,05 ORGANISATIONS/_Programme resources,,Used across programmes,,,M
+1DOZXeCY8Xt74ByUto2DVXvQBi1a2X_hT,/Statestreet Org Presentations,MOVE,07 TO BE SORTED,,Org decks: split into each org's 01 Profile & pitch deck,,,L
+1NUqHsLKS5Iut36Jf180OsijNtgDrjYnv,/Recommendation for Fellowships,MOVE,07 TO BE SORTED,,Split into each org's 05 Recommendations & nominations,,,M
+1LUwQrDl8H8gocgRcYNhVlJgQyQJ5EPgm,/Master Deck,MERGE,01 STRATEGY & OPERATIONS/Decks,,"Then move live deck to CURRENT, rest to _superseded",,,H
+18gFqEeWPdQVO7eJT2-r2iqO06qnujuL2,/SocEnt The^Delta ALM Deck ,MOVE,01 STRATEGY & OPERATIONS/Decks,ALM deck,Deck,,,M
+1t45lS4k0qZlNe7WPSEHxO5P6X-kWKMFK,/The^delta strategy,MERGE,"01 STRATEGY & OPERATIONS/Strategy, reviews & deepdives",,Strategy papers,,,H
+1aAlzGyVzh29S1rqNe5VQlzmQ39fGrvlt,/The^delta strategy (duplicate),MERGE,"01 STRATEGY & OPERATIONS/Strategy, reviews & deepdives",,DUPLICATE name and modified date as row above. Check for duplicate files after merge,,,M
+1jF2zKI1ob4qEN2XT054INX-x9iAhGefH,/Quarterly Deepdives,MOVE,"01 STRATEGY & OPERATIONS/Strategy, reviews & deepdives",Quarterly deepdives,,,,H
+17R7BP1sSi_Gakt_Bp3gyB58ME-QIlWHR,/2023 - Presentation for reviews,MOVE,"01 STRATEGY & OPERATIONS/Strategy, reviews & deepdives",Review presentations,Year moved out of folder name. Put the year in the file names,,,M
+1sugcvnVkYGCtgHtUlskODrMRpyYm80RQ,/Field Building - Top Of Funnel,MOVE,"01 STRATEGY & OPERATIONS/Strategy, reviews & deepdives",Field building - top of funnel,,,,M
+1LqkgvYa3kTXLB2xd6qe_tEjEXCTTnaXw,/ALM Updates,MOVE,"01 STRATEGY & OPERATIONS/Strategy, reviews & deepdives",,Confirm what ALM is,,,L
+1VWMPj_cJC3YHbf44wSHXusQpX9flipN7,/Process Document-Narrative Documents,MERGE,01 STRATEGY & OPERATIONS/Process & templates,,SOPs,,,H
+16LRoFSqlpJRC9Gc2UfPEMLcMGq9ybbz3,/Impact Checklist Documents,MOVE,01 STRATEGY & OPERATIONS/Process & templates,Impact checklists,Checklists. Could go to 02 if it holds data,,,M
+1dYqpno-uT9N7-f4J-CgLJLGpnBavEcXd,/Socent KT,MOVE,01 STRATEGY & OPERATIONS/Team operations,Knowledge transfer,,,,M
+144HySkzqBnX_smiKwq9B4pTp9axxAQsf,/JD,MOVE,01 STRATEGY & OPERATIONS/Team operations,Job descriptions,Name expanded,,,M
+14Ni8sWj571X0HP3xF9jYOk_0-Pvh15zK,/Thought Leadership,MERGE,01 STRATEGY & OPERATIONS/Thought leadership,,,,,H
+1teEcNKnoehTQlWhs9GtPfmPyPeZxkZMJ,/Social Entrepreneurship Documents_Times,MOVE,01 STRATEGY & OPERATIONS/Thought leadership,Times - social entrepreneurship,Published pieces?,,,L
+1N25ItMIFA3snjnCZCqwiupexMWxWVhgn,/N/Core Product,MOVE,01 STRATEGY & OPERATIONS/Product,N-Core product,Slash removed from name,,,H
+1VE__5BZuWiflt3K8L2o5SPSZMfUFABZe,/N/Core Seeds,MOVE,01 STRATEGY & OPERATIONS/Product,N-Core Seeds,Slash removed from name,,,H
+1NaH0Iad-lYIaMiCGYIvNrWFNvpKZG6yo,/Delta Seed/ Equity (CSR Equity) thinking,MOVE,01 STRATEGY & OPERATIONS/Product,Delta Seed - Equity (CSR equity),Slash removed from name,,,H
+1OM_Qg4-j0iWk0JowDPSkP1FGdeJJbkGZ,/N_Core_Fundraising,MOVE,01 STRATEGY & OPERATIONS/Product,N-Core fundraising,Could be 06 instead,,,L
+1FZfUE1AJirE9zZnq30Kb4-Hoh_CTjFQo,/Socent Partners Database,MOVE,01 STRATEGY & OPERATIONS/Network & ecosystem,Partners database,,,,H
+1HuYKvMb2XcF92zay2yAjFPfUUuKBuG_M,/Gujarat SocEnt Cell,MOVE,01 STRATEGY & OPERATIONS/Network & ecosystem,,Government mapping,,,M
+1XJUUZBYiF2pp0fAXGfgIs6htleRnVNha,/MoRD,MOVE,01 STRATEGY & OPERATIONS/Network & ecosystem,MoRD (Ministry of Rural Development),Could be a proposal instead,,,L
+1ZyTqEgNj1BtP_-2s-9KvDmcaUw2vOZrG,/AIC NCORE DEVELOPMENTAL IMPACT FOUNDATION,MERGE,01 STRATEGY & OPERATIONS/AIC N-Core,,Do not reorganise files inside. Legal papers go to 03 by hand,,,H
+1GCz_isANorQB5BcimIB6FBe9GpbDhVDQ,/Social Entrepreneurship Landscape Report,MOVE,02 RESEARCH & IMPACT/Landscape & studies,Landscape report,,,,H
+1pQJmCMMx5fpZ94pkmzeaEuv0pyyvhK1W,/70+ livelihood book,MOVE,02 RESEARCH & IMPACT/Landscape & studies,,,,,M
+1rxoVYdsAbSn6E4DTnH6Yiq4mC5i9jgKA,/Roadmap to livelihoods - SocEnt,MOVE,02 RESEARCH & IMPACT/Landscape & studies,Roadmap to livelihoods,,,,M
+1GZgovyDpTig9CEzliocAzqKQjtlS0tiU,/Stepback Data Analysis,MOVE,02 RESEARCH & IMPACT/Landscape & studies,Stepback data analysis,,,,M
+11xdAL8mSa1bG2rgK6fvMeiHmWa7MJqI4,/Social Stock Exchange,MOVE,02 RESEARCH & IMPACT/Landscape & studies,,,,,M
+1MWdCTfPZFWSGI5y5KyDarQoN6gEawsxB,/Impact data questionnaire,MOVE,02 RESEARCH & IMPACT/Impact data,,Split by year if it holds responses,,,M
+1MTiF4EkEGenePjhlrKgysBbhPGNKmtcO,/Impact Data Backup,MOVE,02 RESEARCH & IMPACT/Impact data,_Backup (check for duplicates),Probably duplicates live impact data,,,M
+1Y-fx-v6gik7FttMmwvHQs36lIuhlNb_K,/Current Agreements,MERGE,03 LEGAL & COMPLIANCE/01 Agreements & MoUs,,Then sort into year-signed folders,,,H
+1uGI9E1aVHy13T7SavcdFQT1n4Xsy5kel,/Meta MoUs Jan 2024,MOVE,03 LEGAL & COMPLIANCE/01 Agreements & MoUs/2024,Meta Pragati MoUs,Year folder per signing year,,,H
+1ge0FZIuaTri8-r_o6PQjY6Zs0UiOThYq,/NLF Service Agreement,MOVE,03 LEGAL & COMPLIANCE/01 Agreements & MoUs/2025,,Only if signed. Drafts stay with programme,,,M
+1KakP-NOQsP3h_0UkyRXHaEwVQCWzccl6,/Mukkamaar- DE Shaw resolution,MOVE,03 LEGAL & COMPLIANCE/03 Registrations & statutory,Mukkamaar - DE Shaw resolution,,,,M
+1P5UlwhzsxBHcF_Dpuw1_Su6wwe4VI2eM,/Utilization Reports N core,MOVE,03 LEGAL & COMPLIANCE/02 Utilisation certificates,N-Core utilisation reports,Split by FY,,,M
+1M7Wb76I_oTuvmOu4qKX7CzmhVvuPGNq7,/SocEnt Newsletters,MOVE,04 BRAND & MEDIA/Collaterals & campaigns,Newsletters,,,,H
+1pW7irTZrBwG4I_HIOsKddWMWtEa2R2vu,/SocEnt Newsletters (duplicate),MERGE,04 BRAND & MEDIA/Collaterals & campaigns/Newsletters,,DUPLICATE folder name. Merged into the one above,,,H
+1QbcFjyZTI9IyxnwwkWXMRJihF74tfhB2,/Marketing,MERGE,04 BRAND & MEDIA/Collaterals & campaigns,,,,,M
+107Bdd89SxnLQwejjizMM7mfHd4VVu8QG,/Website Updates 2024,MOVE,04 BRAND & MEDIA/Collaterals & campaigns,Website updates,Ad hoc year removed,,,H
+1POTthKMh4t5-wfmRXI-JQWU3Xgj9nV6b,/10 years of Nudge,MOVE,04 BRAND & MEDIA/Collaterals & campaigns,,Or Events if it was an event,,,M
+1xfFMwyHgh8upCvDZed3TW9DotXq5Buq6,/Soiree 2024,MOVE,04 BRAND & MEDIA/Events,2024-MM Soiree,Fill in the month,,,M
+1OECbu3XIE--pGpeQv8uo3svUgBPWxxek,/Soiree 2026,MOVE,04 BRAND & MEDIA/Events,2026-MM Soiree,Fill in the month,,,M
+1Da-pKxnFC8S4h-oOIkQGsbeo9-Cjvfsp,/100+ Alumni event pix,MOVE,04 BRAND & MEDIA/Events,2024-11 Alumni event,Date taken from naming example. Confirm,,,M
+10GUV7zyIQWxsOGtJ_gJkRnb9wxAch-Bw,/Artisan roundtable,MOVE,04 BRAND & MEDIA/Events,YYYY-MM Artisan roundtable,Fill in date,,,M
+1QDHH96ablLmeLABvInCTLlVP2YClcf0P,/Mulago huddle pictures,MOVE,04 BRAND & MEDIA/Events,YYYY-MM Mulago huddle,Fill in date,,,M
+1IHJ6dQShX3m3rNlAr_L_uDvAVjNh9Oya,/Demo installations at LBSNAA,MOVE,04 BRAND & MEDIA/Events,YYYY-MM LBSNAA demo installations,Fill in date,,,M
+1Xc5AhRCMgWHkFsrlQflsERMmp44TaZxz,/SD Delta Pictures,MOVE,04 BRAND & MEDIA/Films & photo library,,,,,M
+1HVuLQ7L0murHBXS3utSI75_a-3QgDTjw,/Camera Photos ,MOVE,04 BRAND & MEDIA/Films & photo library,Camera photos,,,,M
+1nW2iFmXy_QDTA7Ba02LAsnDx9UGZoNSP,/Previous cohort pic,MOVE,04 BRAND & MEDIA/Films & photo library,Cohort photos,,,,M
+10_LTbcNvzVxC6aiikJ_NCT5t19VuFItq,/Meta Movies,MOVE,04 BRAND & MEDIA/Films & photo library,,,,,M
+1ba58WTTUQ12e0a5M8aQ080fzRHX6vTd4,/Carrot Movies - Incubator and Accelerator,MOVE,04 BRAND & MEDIA/Films & photo library,,,,,M
+1VJ66Q63kGQHq-SF53ILCkuIx-xlge37g,/Proposals,MERGE,06 FUNDING PROPOSALS,,Then sort contents into year > funder,,,M
+1Jal3PDBLMgkc_oXBw8wpl4FkILHqQgf9,/FR Folder,MERGE,06 FUNDING PROPOSALS,,Then sort contents into year > funder / _FR resources,,,M
+1kGXfWUedl1hl19RADGUkJiDGL-L3bPYZ,/Meta Pragati Proposal October 23,MOVE,06 FUNDING PROPOSALS/2023,Meta Pragati,,,,H
+1HolS0QeQmaGbLPTC4KzKCX_HCebVkr0W,/Koita Proposals 2023,MOVE,06 FUNDING PROPOSALS/2023,Koita,,,,H
+1H-tLRtsxP6UC3qS5PfBF9fPHfNh5qOhq,/Mphasis FY 24-25 Proposal,MOVE,06 FUNDING PROPOSALS/2023,Mphasis,Year = year submitted (2023). Team to confirm submission year vs FY,,,M
+1ZNmADOrQDouuTnTqoP1lWCt9nSrI5QA5,/Grant Thornton,MOVE,06 FUNDING PROPOSALS/2023,,Assumed to be a funder,,,L
+17QC264OLiHfGZMgWB_Fkp9XdlM5ANvFR,/Skoll Profiles,MOVE,06 FUNDING PROPOSALS/2024,Skoll,,,,M
+1hpsJ4OZycc_ij9Q7nBx4u6UZnWShD8nS,/CSR Sep 2024,MOVE,06 FUNDING PROPOSALS/2024,CSR (Sep),Confirm funder,,,L
+18xn7RFwmv4wYy4YtFhF-OmYoSRn2DOXm,/MOSJE SocEnt Fund,MOVE,06 FUNDING PROPOSALS/2024,MoSJE,,,,M
+1wMecKP-4005pFrZVKetJmWMrueezDZNp,/MOSJE SocEnt Fund (duplicate),MERGE,06 FUNDING PROPOSALS/2024/MoSJE,,DUPLICATE name and modified date as row above,,,M
+1UeK_fIln56taZ_HJxrS53DxpvnAZ2xNj,/DST ,MOVE,06 FUNDING PROPOSALS/2026,DST,Assumed to be a proposal to the Dept of Science & Technology,,,L
+15yE6lbs5vUtNXBcCzwc2ibqS_POUcBtE,/Target Volunteering <>TNI,MOVE,06 FUNDING PROPOSALS/CSR & volunteering,Target,,,,H
+1-rCVF3N57WP42L2EiDOdGQNs9YgGrBM1,/Mphasis Quarterly Reporting,MOVE,06 FUNDING PROPOSALS/Reporting to funders,Mphasis,,,,H
+17IIZIVP4aVz3xaswKjZL6BsRFbrV_Qln,/Misc,MERGE,07 TO BE SORTED,,Per structure,,,H
+1V1x60k9bonoXCRu5mtw00p-rkg_eCF7H,/Other,MERGE,07 TO BE SORTED,,Per structure,,,H
+1iVBfUV2lLgyEFv9p09rAJg63dO_QyO4E,/Tech Docs ,MERGE,07 TO BE SORTED,,Per structure,,,H
+1VTd4j7fACwoeEPq_-uSt4wvMOIDc2nsA,/Donors,MOVE,07 TO BE SORTED,,"Split: proposals > 06, reports > Reporting to funders",,,L
+1PTj7D1WjS33-Gr-Hv40QcE-Z-m4R9mqO,/Catalysts for Change,MOVE,07 TO BE SORTED,,"Unknown. Programme, event or proposal?",,,L
+1pqc8m5sZsjb9380GkU9Kut3iB4U8-Yxg,/CSI 3.0,MOVE,07 TO BE SORTED,,Unknown,,,L
+1rQ70-Br97QIT8Fenf8CeBTu_1cQ0pEmf,/BIC,MOVE,07 TO BE SORTED,,Unknown,,,L
+1ADH_5BeEog8nK-M_0RlQp98hl_fPIMO9,/Archana Pillai ,MOVE,07 TO BE SORTED,,Named after a person. Check contents,,,L
+1Qa-GhdOtgOZZQaC05mEAuKzhf04nWJaU,/Tax Invoices,MOVE,07 TO BE SORTED,,DECISION: no finance home in new structure,,,L
+1-Quqen1RPUkLfRf8J1usZ2QCZ_u91FMe,/Expense Claim,MOVE,07 TO BE SORTED,,DECISION: no finance home in new structure,,,L
+1FMAhXutODFhp3hw93_70mlnFCJ1fzHNm,/2019 - 2020 Donation receipts for finance,MOVE,07 TO BE SORTED,,DECISION: no finance home in new structure,,,L
