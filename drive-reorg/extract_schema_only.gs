@@ -7,8 +7,11 @@ const CONFIG = {
   INCLUDE_FILE_COUNTS: true,
   MAX_DEPTH: 0,                     // 0 = all levels
   OUTPUT_SPREADSHEET_ID: '',        // blank = create a new sheet
+  FILE_COUNT_TIME_LIMIT_SEC: 270,   // stop counting files after this; folders are always complete
 };
 
+const FOLDER_FIELDS = 'nextPageToken, files(id, name, mimeType, parents, createdTime, modifiedTime)';
+const FILE_FIELDS = 'nextPageToken, files(mimeType, parents)';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 const SHORTCUT_MIME = 'application/vnd.google-apps.shortcut';
 
@@ -19,25 +22,42 @@ function extractSchema() {
     ? Drive.Drives.get(CONFIG.ROOT_ID).name
     : Drive.Files.get(CONFIG.ROOT_ID, { supportsAllDrives: true, fields: 'name' }).name;
 
-  const items = isSharedDrive ? listSharedDrive_(CONFIG.ROOT_ID) : listUnderFolder_(CONFIG.ROOT_ID);
+  // Folders are kept in memory. Files are only counted, then dropped.
   const folders = {};
   const children = {};
   const directFiles = {};
   const shortcuts = {};
-  items.forEach(function (it) {
+  const deadline = started + CONFIG.FILE_COUNT_TIME_LIMIT_SEC * 1000;
+  let filesSeen = 0;
+  let countsComplete = true;
+
+  function onItem(it) {
     const parent = (it.parents || [])[0];
     if (it.mimeType === FOLDER_MIME) {
       folders[it.id] = it;
       (children[parent] = children[parent] || []).push(it.id);
     } else if (parent) {
+      filesSeen++;
       directFiles[parent] = (directFiles[parent] || 0) + 1;
       if (it.mimeType === SHORTCUT_MIME) shortcuts[parent] = (shortcuts[parent] || 0) + 1;
     }
-  });
+  }
+
+  if (isSharedDrive) {
+    pagedEach_({ q: "trashed = false and mimeType = '" + FOLDER_MIME + "'", corpora: 'drive',
+      driveId: CONFIG.ROOT_ID, fields: FOLDER_FIELDS }, onItem);
+    if (CONFIG.INCLUDE_FILE_COUNTS) {
+      countsComplete = pagedEach_({ q: "trashed = false and mimeType != '" + FOLDER_MIME + "'",
+        corpora: 'drive', driveId: CONFIG.ROOT_ID, fields: FILE_FIELDS }, onItem, deadline);
+    }
+  } else {
+    countsComplete = walkFolderRoot_(CONFIG.ROOT_ID, onItem, deadline);
+  }
 
   const rows = [];
   const treeLines = [[rootName + '/' +
-    (CONFIG.INCLUDE_FILE_COUNTS ? '  [' + (directFiles[CONFIG.ROOT_ID] || 0) + ' loose files at root]' : '')]];
+    (CONFIG.INCLUDE_FILE_COUNTS ? '  [' + (directFiles[CONFIG.ROOT_ID] || 0) + ' loose files at root]' : '') +
+    (countsComplete ? '' : '  [FILE COUNTS PARTIAL: time limit reached]')]];
   const nameIndex = {};
   Object.keys(folders).forEach(function (id) {
     const k = normalise_(folders[id].name);
@@ -59,7 +79,7 @@ function extractSchema() {
       if (seenHere[norm]) flags.push('DUP_SAME_PARENT');
       seenHere[norm] = true;
       if (nameIndex[norm] > 1) flags.push('DUP_NAME_x' + nameIndex[norm]);
-      if (total === 0 && subCount === 0) flags.push('EMPTY');
+      if (countsComplete && total === 0 && subCount === 0) flags.push('EMPTY');
       if (f.name !== f.name.trim() || /\s{2,}/.test(f.name)) flags.push('WHITESPACE');
       if (/\b(19|20)\d{2}\b|\bFY ?\d{2}/i.test(f.name)) flags.push('YEAR_IN_NAME');
       if (/\b(copy of|untitled|new folder|misc|other|old|temp|backup)\b/i.test(f.name)) flags.push('VAGUE_NAME');
@@ -94,55 +114,51 @@ function extractSchema() {
   const first = ss.getSheets()[0];
   if (first.getName() === 'Sheet1') ss.deleteSheet(first);
 
-  Logger.log('Folders: %s | Items scanned: %s | %ss', rows.length, items.length,
+  Logger.log('Folders: %s | Files counted: %s%s | %ss', rows.length, filesSeen,
+    countsComplete ? '' : ' (PARTIAL - time limit)',
     Math.round((Date.now() - started) / 1000));
   Logger.log('Output: %s', ss.getUrl());
 }
 
-function listSharedDrive_(driveId) {
-  const q = CONFIG.INCLUDE_FILE_COUNTS
-    ? 'trashed = false'
-    : "trashed = false and mimeType = '" + FOLDER_MIME + "'";
-  return pagedList_({ q: q, corpora: 'drive', driveId: driveId });
-}
-
-function listUnderFolder_(rootId) {
-  const out = [];
+/** Regular folder root: breadth-first, up to 40 parents per query. */
+function walkFolderRoot_(rootId, onItem, deadline) {
   let frontier = [rootId];
   let depth = 0;
+  let complete = true;
   while (frontier.length && (!CONFIG.MAX_DEPTH || depth < CONFIG.MAX_DEPTH)) {
     const next = [];
     for (let i = 0; i < frontier.length; i += 40) {
       const parents = frontier.slice(i, i + 40)
         .map(function (id) { return "'" + id + "' in parents"; }).join(' or ');
       let q = 'trashed = false and (' + parents + ')';
-      if (!CONFIG.INCLUDE_FILE_COUNTS) q += " and mimeType = '" + FOLDER_MIME + "'";
-      pagedList_({ q: q, corpora: 'allDrives' }).forEach(function (it) {
-        out.push(it);
+      if (!CONFIG.INCLUDE_FILE_COUNTS || !complete) q += " and mimeType = '" + FOLDER_MIME + "'";
+      const ok = pagedEach_({ q: q, corpora: 'allDrives', fields: FOLDER_FIELDS }, function (it) {
+        onItem(it);
         if (it.mimeType === FOLDER_MIME) next.push(it.id);
-      });
+      }, complete && CONFIG.INCLUDE_FILE_COUNTS ? deadline : 0);
+      if (!ok) complete = false;
     }
     frontier = next;
     depth++;
   }
-  return out;
+  return complete;
 }
 
-function pagedList_(opts) {
-  const out = [];
+/** Calls cb for each result, one page at a time. Returns false if it stopped at the deadline. */
+function pagedEach_(opts, cb, deadline) {
   let pageToken;
   do {
+    if (deadline && Date.now() > deadline) return false;
     const res = Drive.Files.list(Object.assign({
       pageSize: 1000,
       pageToken: pageToken,
       includeItemsFromAllDrives: true,
       supportsAllDrives: true,
-      fields: 'nextPageToken, files(id, name, mimeType, parents, createdTime, modifiedTime)'
     }, opts));
-    (res.files || []).forEach(function (f) { out.push(f); });
+    (res.files || []).forEach(cb);
     pageToken = res.nextPageToken;
   } while (pageToken);
-  return out;
+  return true;
 }
 
 function countTotal_(id, children, directFiles) {
