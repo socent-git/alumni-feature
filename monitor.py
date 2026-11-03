@@ -3,7 +3,7 @@
 website updates, and post anything new to Slack.
 
 Free sources only, no logins, no API keys:
-  - Google News RSS   (news articles)
+  - Google News RSS   (news articles naming the org; award news naming its founders)
   - Bing News RSS     (second news source / fallback)
   - LinkedIn page     (the org's public company page, read logged out: latest posts)
   - Exa public MCP    (public LinkedIn posts by or about the org)
@@ -151,8 +151,16 @@ def mentions(c, text, context_text=None):
     return not ctx or any(re.search(r"(?<![a-z0-9])" + re.escape(w.lower()), ct) for w in ctx)
 
 
+def founders(c):
+    return [f.strip() for f in c.get("founders", "").split("|") if f.strip()]
+
+
 def or_query(c):
     return " OR ".join(f'"{a}"' for a in aliases(c))
+
+
+AWARD_QUERY = ('(award OR awarded OR prize OR wins OR won OR honoured OR honored OR felicitated OR '
+               'recognised OR recognized OR finalist OR fellowship OR "special mention" OR conferred)')
 
 
 # ---------- sources ----------
@@ -162,6 +170,17 @@ def google_news(c, days):
     url = "https://news.google.com/rss/search?" + urllib.parse.urlencode(
         {"q": q, "hl": "en-IN", "gl": "IN", "ceid": "IN:en"})
     return [dict(i, via="Google News") for i in parse_feed(http_get(url))]
+
+
+def google_news_founders(c, days):
+    """Awards and recognition naming a founder; articles often lead with the person, not the org."""
+    names = founders(c)
+    if not names:
+        return []
+    q = f"({' OR '.join(f'{chr(34)}{n}{chr(34)}' for n in names)}) {AWARD_QUERY} when:{days}d"
+    url = "https://news.google.com/rss/search?" + urllib.parse.urlencode(
+        {"q": q, "hl": "en-IN", "gl": "IN", "ceid": "IN:en"})
+    return [dict(i, via="Google News (founder)") for i in parse_feed(http_get(url))]
 
 
 def bing_news(c, days):
@@ -219,7 +238,9 @@ def exa_linkedin(c, days):
     body = json.dumps({
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",
         "params": {"name": "web_search_exa", "arguments": {
-            "query": f"Recent LinkedIn post by {name} (Indian non-profit / social enterprise) sharing news, an award or recognition",
+            "query": f"Recent LinkedIn post by {name} (Indian non-profit / social enterprise)"
+                     + (f" or its founder {', '.join(founders(c))}" if founders(c) else "")
+                     + " sharing news, an award or recognition",
             "objective": f"Rank LinkedIn posts published by or about the organisation '{name}' in the last {days} days first.",
             "numResults": 10,
         }},
@@ -271,16 +292,18 @@ def website_feed(c, days):
     return []
 
 
-SOURCES = [("Google News", google_news), ("Bing News", bing_news),
+SOURCES = [("Google News", google_news), ("Google News (founder)", google_news_founders), ("Bing News", bing_news),
            ("LinkedIn page", linkedin_page), ("LinkedIn (Exa)", exa_linkedin), ("Own website", website_feed)]
 
 
 # ---------- pipeline ----------
 
-def collect(c, days):
+def collect(c, days, skip=()):
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     found, failed = [], []
     for label, fn in SOURCES:
+        if label in skip:
+            continue
         try:
             items = fn(c, days)
         except Exception as e:
@@ -295,9 +318,12 @@ def collect(c, days):
             if JUNK_TITLE.search(i["title"]):
                 continue  # tag/category index pages
             if label in ("Google News", "Bing News"):
-                # Headline or link must name the org; Bing ignores quotes and matches loose words
                 headline = f"{i['title']} {i['url'].replace('-', ' ')}"
-                if not mentions(c, headline, f"{headline} {i['summary']}"):
+                # Google matches the exact quoted name anywhere in the article, so for a distinctive
+                # name trust it even when the headline only names the founder or the award.
+                # Generic names, and Bing (which ignores quotes), must name the org in the headline.
+                trusted = label == "Google News" and not c["context"]
+                if not trusted and not mentions(c, headline, f"{headline} {i['summary']}"):
                     continue
                 if any(a.lower() in i["source"].lower() for a in aliases(c)):
                     continue  # the org's own articles; those come from its website feed
@@ -375,6 +401,9 @@ def main():
     ap.add_argument("--only", help="check a single organisation by name")
     ap.add_argument("--dry-run", action="store_true", help="print only; don't post or save")
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--news-only", action="store_true",
+                    help="skip LinkedIn company pages (for the extra runs during the day)")
+    ap.add_argument("--quiet", action="store_true", help="don't post to Slack when nothing is new")
     args = ap.parse_args()
 
     companies = list(csv.DictReader(open(COMPANIES, encoding="utf-8")))
@@ -384,7 +413,8 @@ def main():
 
     print(f"Checking {len(companies)} organisations, last {args.days} days…", file=sys.stderr)
     with ThreadPoolExecutor(args.workers) as pool:
-        results = list(pool.map(lambda c: collect(c, args.days), companies))
+        skip = ("LinkedIn page",) if args.news_only else ()
+        results = list(pool.map(lambda c: collect(c, args.days, skip), companies))
 
     failed_sources, new, taken, today = {}, [], set(), datetime.now(timezone.utc).strftime("%Y-%m-%d")
     for items, failed in results:
@@ -409,7 +439,7 @@ def main():
         return
 
     webhook = os.environ.get("SLACK_WEBHOOK_URL")
-    if webhook:
+    if webhook and not (args.quiet and not new):
         for part in chunks(report):
             slack_post(webhook, part)
     else:
