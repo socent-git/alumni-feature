@@ -317,16 +317,11 @@ def collect(c, days, skip=()):
                 continue  # unknown or too old
             if JUNK_TITLE.search(i["title"]):
                 continue  # tag/category index pages
-            if label == "Google News (founder)" and not AWARD_RE.search(i["title"]):
-                continue  # founder names are common; keep only award/recognition headlines
             if label in ("Google News", "Bing News"):
                 headline = f"{i['title']} {i['url'].replace('-', ' ')}"
-                # The headline must name the org. Exception: Google found the exact name somewhere in
-                # an award story whose headline names only the award or the person ("Film on girls'
-                # education wins UN SDG Action Award"). Google also matches names in sidebars and
-                # related-story boxes, so non-award stories without the name in the headline are dropped.
-                award_story = label == "Google News" and not c["context"] and AWARD_RE.search(i["title"])
-                if not award_story and not mentions(c, headline, f"{headline} {i['summary']}"):
+                # Bing ignores quotes and matches loose words, so its headline must name the org.
+                # Google results go through the three-layer check, which reads the whole article.
+                if label == "Bing News" and not mentions(c, headline, f"{headline} {i['summary']}"):
                     continue
                 if any(a.lower() in i["source"].lower() for a in aliases(c)):
                     continue  # the org's own articles; those come from its website feed
@@ -354,18 +349,90 @@ def key_for(i):
     return f"{i['company']}|{title}"
 
 
+# ---------- three-layer check ----------
+#   1. Org + founder:   the org's name (full or short) AND one of its founders' names are in the article
+#   2. Org identity:    the org is named in the headline, or its website / LinkedIn page is in the article
+#   3. Founder link:    a founder's full name is in the headline, or sits right next to the org's name
+#                       ("Prashant Chaudhary, founder of CodeYogi")
+# An item reaches Slack only when at least 2 of the 3 pass. Posts from the org's own LinkedIn page or
+# website are the org speaking for itself, so they count as verified (3/3).
+
+OWN_CHANNELS = ("LinkedIn page", "Own website")
+
+
+def real_url(url):
+    """Google News hides the article behind its own link; ask Google for the real one."""
+    if "news.google.com/" not in url:
+        return url
+    aid = urllib.parse.urlparse(url).path.rstrip("/").split("/")[-1]
+    page = http_get(f"https://news.google.com/rss/articles/{aid}", tries=1)
+    sg = re.search(r'data-n-a-sg="([^"]+)"', page)
+    ts = re.search(r'data-n-a-ts="([^"]+)"', page)
+    if not sg or not ts:
+        return url
+    inner = (f'["garturlreq",[["X","X",["X","X"],null,null,1,1,"US:en",null,1,null,null,null,null,null,0,1],'
+             f'"X","X",1,[1,1,1],1,1,null,0,0,null,0],"{aid}",{ts.group(1)},"{sg.group(1)}"]')
+    body = urllib.parse.urlencode({"f.req": json.dumps([[["Fbv4je", inner, None, "generic"]]])}).encode()
+    raw = http_get("https://news.google.com/_/DotsSplashUi/data/batchexecute", data=body,
+                   headers={"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"}, tries=1)
+    m = re.search(r'\\"garturlres\\",\\"(.*?)\\"', raw)
+    return m.group(1) if m else url
+
+
+def article_text(url):
+    """(visible text, raw html) of an article, without menus, sidebars and footers."""
+    page = http_get(url, headers={"User-Agent": BROWSER_UA}, tries=1)
+    body = re.sub(r"(?is)<(script|style|nav|aside|footer|header|form|noscript)\b.*?</\1>", " ", page)
+    return clean(body).lower(), page.lower()
+
+
+def near(text, a, b, window=300):
+    pa = [m.start() for m in re.finditer(re.escape(a), text)]
+    pb = [m.start() for m in re.finditer(re.escape(b), text)]
+    return any(abs(x - y) <= window for x in pa for y in pb)
+
+
+def three_checks(c, i):
+    """Returns the list of checks passed, e.g. ["org+founder", "org identity"]."""
+    slug = re.search(r"linkedin\.com/company/([^/?#]+)", c.get("linkedin", ""))
+    if i["via"] in OWN_CHANNELS or (slug and f"/posts/{slug.group(1).lower()}_" in i["url"].lower()):
+        return ["own channel"] * 3
+    text, page = f"{i['title']} {i['summary']}".lower(), ""
+    if i["via"].startswith(("Google News", "Bing News")):
+        try:
+            i["url"] = real_url(i["url"])
+            text, page = article_text(i["url"])
+            text = f"{i['title'].lower()} {text}"
+        except Exception:
+            pass  # judge on the headline alone; it will usually score low and be held
+    names = [a.lower() for a in aliases(c)]
+    org_in_text = mentions(c, text)
+    founders_in = [f for f in founders(c) if re.search(r"(?<![a-z])" + re.escape(f.lower()) + r"(?![a-z])", text)]
+    site = re.sub(r"^https?://(www\.)?", "", c.get("website", "")).split("/")[0].lower()
+    passed = []
+    if org_in_text and founders_in:
+        passed.append("org+founder")
+    if mentions(c, i["title"], text) or (site and site in page + text) or (slug and slug.group(1).lower() in page):
+        passed.append("org identity")
+    if any(f.lower() in i["title"].lower() for f in founders(c)) or any(
+            near(text, f.lower(), n) for f in founders_in for n in names):
+        passed.append("founder link")
+    return passed
+
+
 def slack_post(webhook, text):
     data = json.dumps({"text": text, "unfurl_links": False, "unfurl_media": False}).encode()
     http_get(webhook, data=data, headers={"Content-Type": "application/json"}, tries=2)
 
 
-def render(new, failed_sources, n_companies, days):
+def render(new, failed_sources, n_companies, days, held=0):
     awards = [i for i in new if i["category"] != "Update"]
     lines = [f"*Organisation updates* — {len(new)} new item(s) across {len({i['company'] for i in new})} "
              f"organisation(s) in the last {days} days ({len(awards)} awards, recognition or funding)."]
     def link(i):
         t = i["title"].replace("<", "‹").replace(">", "›").replace("|", "¦")
-        return f"<{i['url']}|{t}> — _{i['via']}, {i['published']:%d %b}_"
+        score = "✓✓✓" if len(i.get("checks", [])) >= 3 else "✓✓"
+        return f"<{i['url']}|{t}> — _{i['via']}, {i['published']:%d %b}_ {score}"
 
     if awards:
         lines.append("\n:trophy: *Awards, recognition & funding*")
@@ -385,6 +452,9 @@ def render(new, failed_sources, n_companies, days):
             lines.append(f"• *{company}*: {link(group[0])}{more}")
     if not new:
         lines.append(f"Nothing new this cycle (checked {n_companies} organisations).")
+    if held:
+        lines.append(f"\n_{held} lower-confidence item(s) passed fewer than 2 of 3 checks and were held "
+                     f"for review (data/updates.csv, status \"held\")._")
     if failed_sources:
         lines.append("\n_Unavailable this run (will retry next cycle): "
                      + ", ".join(f"{k} ×{v}" for k, v in sorted(failed_sources.items())) + "_")
@@ -416,6 +486,7 @@ def main():
     if args.only:
         companies = [c for c in companies if args.only.lower() in c["name"].lower()]
     seen = json.load(open(SEEN)) if os.path.exists(SEEN) else {}
+    by_name = {c["name"]: c for c in companies}
 
     print(f"Checking {len(companies)} organisations, last {args.days} days…", file=sys.stderr)
     with ThreadPoolExecutor(args.workers) as pool:
@@ -435,7 +506,15 @@ def main():
             taken |= keys
             new.append(i)
 
-    report = render(new, failed_sources, len(companies), args.days)
+    # Three-layer check (reads each new article in full); only 2-of-3 or better reach Slack
+    with ThreadPoolExecutor(args.workers * 2) as pool:
+        for i, passed in zip(new, pool.map(lambda i: three_checks(by_name[i["company"]], i), new)):
+            i["checks"] = passed
+    held = [i for i in new if len(i["checks"]) < 2]
+    posted = [i for i in new if len(i["checks"]) >= 2]
+    print(f"Three-layer check: {len(posted)} passed, {len(held)} held for review", file=sys.stderr)
+
+    report = render(posted, failed_sources, len(companies), args.days, len(held))
     print(report)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
@@ -445,7 +524,7 @@ def main():
         return
 
     webhook = os.environ.get("SLACK_WEBHOOK_URL")
-    if webhook and not (args.quiet and not new):
+    if webhook and not (args.quiet and not posted):
         for part in chunks(report):
             slack_post(webhook, part)
     else:
@@ -461,10 +540,11 @@ def main():
     with open(UPDATES, "a", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         if write_header:
-            w.writerow(["found_on", "organisation", "category", "source", "published", "title", "url"])
+            w.writerow(["found_on", "organisation", "category", "source", "published", "status", "checks_passed",
+                        "title", "url"])
         for i in new:
-            w.writerow([today, i["company"], i["category"], i["via"],
-                        i["published"].strftime("%Y-%m-%d"), i["title"], i["url"]])
+            w.writerow([today, i["company"], i["category"], i["via"], i["published"].strftime("%Y-%m-%d"),
+                        "posted" if i in posted else "held", "; ".join(i["checks"]), i["title"], i["url"]])
 
 
 if __name__ == "__main__":
