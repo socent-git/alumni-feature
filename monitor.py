@@ -551,7 +551,10 @@ def main():
         email_send(report, f"Organisation updates: {len(posted)} new"
                            + (f", {awards} award/recognition" if awards else "") + f" ({today})")
     if not webhook and not os.environ.get("GMAIL_APP_PASSWORD"):
-        print("No SLACK_WEBHOOK_URL or GMAIL_APP_PASSWORD set; nothing sent.", file=sys.stderr)
+        # Don't mark anything as seen: once an alert channel is connected, these items still get sent
+        print("No SLACK_WEBHOOK_URL or GMAIL_APP_PASSWORD set; nothing sent and nothing marked as seen. "
+              "Results are in this run's summary.", file=sys.stderr)
+        return
 
     for i in new:
         seen[key_for(i)] = seen[text_key(i)] = today
