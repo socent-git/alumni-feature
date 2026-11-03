@@ -317,13 +317,16 @@ def collect(c, days, skip=()):
                 continue  # unknown or too old
             if JUNK_TITLE.search(i["title"]):
                 continue  # tag/category index pages
+            if label == "Google News (founder)" and not AWARD_RE.search(i["title"]):
+                continue  # founder names are common; keep only award/recognition headlines
             if label in ("Google News", "Bing News"):
                 headline = f"{i['title']} {i['url'].replace('-', ' ')}"
-                # Google matches the exact quoted name anywhere in the article, so for a distinctive
-                # name trust it even when the headline only names the founder or the award.
-                # Generic names, and Bing (which ignores quotes), must name the org in the headline.
-                trusted = label == "Google News" and not c["context"]
-                if not trusted and not mentions(c, headline, f"{headline} {i['summary']}"):
+                # The headline must name the org. Exception: Google found the exact name somewhere in
+                # an award story whose headline names only the award or the person ("Film on girls'
+                # education wins UN SDG Action Award"). Google also matches names in sidebars and
+                # related-story boxes, so non-award stories without the name in the headline are dropped.
+                award_story = label == "Google News" and not c["context"] and AWARD_RE.search(i["title"])
+                if not award_story and not mentions(c, headline, f"{headline} {i['summary']}"):
                     continue
                 if any(a.lower() in i["source"].lower() for a in aliases(c)):
                     continue  # the org's own articles; those come from its website feed
@@ -368,8 +371,11 @@ def render(new, failed_sources, n_companies, days):
         lines.append("\n:trophy: *Awards, recognition & funding*")
         for company in sorted({i["company"] for i in awards}):
             lines.append(f"*{company}*")
-            for i in sorted((x for x in awards if x["company"] == company), key=lambda x: x["published"], reverse=True):
+            group = sorted((x for x in awards if x["company"] == company), key=lambda x: x["published"], reverse=True)
+            for i in group[:3]:  # one award often gets a dozen articles; show the newest few
                 lines.append(f"  • {link(i)}")
+            if len(group) > 3:
+                lines.append(f"  _+{len(group) - 3} more articles/posts (see data/updates.csv)_")
     updates = [i for i in new if i["category"] == "Update"]
     if updates:
         lines.append("\n:newspaper: *Other updates* (latest per organisation; all of them are in data/updates.csv)")

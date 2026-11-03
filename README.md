@@ -2,14 +2,24 @@
 
 Watches ~130 organisations for news, awards and recognition, LinkedIn posts and
 their own website/blog posts, then posts anything new to a Slack channel.
-Runs on GitHub Actions every 3 days. Free: no paid APIs, no keys, no LinkedIn login.
+Free: no paid APIs, no keys, no LinkedIn login.
+
+**When it runs** (GitHub Actions):
+
+| Time (IST) | What | Slack |
+|---|---|---|
+| 08:00 daily | Everything, including LinkedIn company pages | Always posts (says "nothing new" if so) |
+| 14:00, 20:00, 02:00 | News, founders, websites (no LinkedIn pages) | Posts only when something is new |
+
+So news is usually reported within about 6 hours of Google News picking it up.
 
 ## Sources
 
 | Source | What it finds |
 |---|---|
 | LinkedIn company page (public, logged out) | The organisation's latest posts (LinkedIn shows guests ~10), with exact dates |
-| Google News RSS | News articles naming the organisation |
+| Google News RSS | News articles naming the organisation (Times of India, ET, The Hindu, Indian Express… all flow through Google News) |
+| Google News RSS, founders | Award / recognition stories naming one of the org's founders, even when the headline doesn't name the org |
 | Bing News RSS | Second news source (catches regional / non-English coverage) |
 | Exa (public search) | Public LinkedIn posts by or about the organisation; backup when LinkedIn blocks a run |
 | Organisation's website RSS feed | Blog / news posts it publishes itself |
@@ -44,12 +54,14 @@ After that it runs by itself every 3 days.
 | `name` | Display name |
 | `website` | Site URL; its RSS feed is found automatically |
 | `linkedin` | LinkedIn company page URL; its public posts are read each run |
-| `aliases` | Names to search for, separated by `\|` (e.g. `Simplyblood\|Change With One Foundation`) |
+| `aliases` | Names to search for, separated by `\|` (e.g. `Simplyblood\|Change With One Foundation`). Include the short name people actually write ("CodeYogi", not only "CodeYogi Foundation") |
+| `founders` | Founders / leaders, separated by `\|`; their names are searched in award news |
 | `context` | For generic names (e.g. "Karya", "STEP"): a result must also contain one of these words, `\|`-separated |
 | `skip` | `website` to ignore the org's own feed (e.g. IDR, which publishes daily) |
 
-When you add organisations, leave `linkedin` blank and run
-`python3 find_linkedin_pages.py`: it finds the page from the organisation's website,
+When you add organisations, leave `linkedin` and `founders` blank and run
+`python3 find_founders.py` (people search; accepts only a current founder/CEO role at
+that org) and `python3 find_linkedin_pages.py`: it finds the page from the organisation's website,
 likely page names or a search, and only accepts a page whose title matches. Check what it
 prints; fix any wrong match by editing the CSV.
 
@@ -61,6 +73,7 @@ words. If it gets none, check its `aliases`.
 ```bash
 python3 monitor.py --dry-run                       # print, don't post or save
 python3 monitor.py --dry-run --only "Mitti Cafe" --days 30
+python3 monitor.py --dry-run --news-only --days 2         # what a daytime run sees
 ```
 
 Results are logged in `data/updates.csv`; `data/seen.json` remembers what's
