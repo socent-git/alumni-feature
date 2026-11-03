@@ -32,9 +32,12 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Check organisations and post to Slack
+      - name: Check organisations and send alerts
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
         run: |
           # The daily 08:00 IST run and manual runs check everything; the others are news-only
           if [ "${{ github.event.schedule }}" = "30 8,14,20 * * *" ] || [ "${{ github.event.inputs.news_only }}" = "true" ]; then

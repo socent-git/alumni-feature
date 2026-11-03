@@ -39,11 +39,17 @@ terms discourage automated access even to public pages, so keep the frequency mo
 
 ## Setup (one time)
 
-1. In Slack, create an [incoming webhook](https://api.slack.com/messaging/webhooks)
-   for the channel and copy its URL.
-2. In GitHub: **Settings → Secrets and variables → Actions → New repository secret**,
-   name `SLACK_WEBHOOK_URL`, paste the URL.
-3. **Actions → Organisation updates → Run workflow** to test it now.
+Alerts go to Slack, Gmail, or both: whichever secrets are set. Add secrets in GitHub under
+**Settings → Secrets and variables → Actions → New repository secret**.
+
+| Secret | For | Value |
+|---|---|---|
+| `SLACK_WEBHOOK_URL` | Slack | An [incoming webhook](https://api.slack.com/messaging/webhooks) URL for the channel |
+| `GMAIL_ADDRESS` | Email | The Gmail address that sends the alerts |
+| `GMAIL_APP_PASSWORD` | Email | A Gmail [app password](https://myaccount.google.com/apppasswords) (needs 2-Step Verification), not the normal password |
+| `ALERT_EMAIL_TO` | Email (optional) | Who receives it, comma-separated; defaults to `GMAIL_ADDRESS` |
+
+Then **Actions → Organisation updates → Run workflow** to test it now.
 
 After that it runs by itself every 3 days.
 

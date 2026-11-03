@@ -461,6 +461,24 @@ def render(new, failed_sources, n_companies, days, held=0):
     return "\n".join(lines)
 
 
+def email_send(report, subject):
+    """Send the report through Gmail (needs a Gmail app password, not the normal password)."""
+    import smtplib
+    from email.mime.text import MIMEText
+    user, password = os.environ["GMAIL_ADDRESS"], os.environ["GMAIL_APP_PASSWORD"]
+    to = [a.strip() for a in (os.environ.get("ALERT_EMAIL_TO") or user).split(",") if a.strip()]
+    body = html.escape(report)
+    body = re.sub(r"&lt;(https?://[^|]+?)\|(.*?)&gt;", r'<a href="\1">\2</a>', body)  # Slack links
+    body = re.sub(r"\*([^*\n]+)\*", r"<b>\1</b>", body)
+    body = re.sub(r"(?<![a-z0-9])_([^_\n]+)_(?![a-z0-9])", r"<i>\1</i>", body)
+    body = body.replace(":trophy:", "🏆").replace(":newspaper:", "📰").replace("\n", "<br>\n")
+    msg = MIMEText(f"<div style='font-family:sans-serif;font-size:14px'>{body}</div>", "html", "utf-8")
+    msg["Subject"], msg["From"], msg["To"] = subject, user, ", ".join(to)
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as smtp:
+        smtp.login(user, password)
+        smtp.sendmail(user, to, msg.as_string())
+
+
 def chunks(text, size=3500):
     out, cur = [], ""
     for line in text.split("\n"):
@@ -523,12 +541,17 @@ def main():
     if args.dry_run:
         return
 
+    send = not (args.quiet and not posted)
     webhook = os.environ.get("SLACK_WEBHOOK_URL")
-    if webhook and not (args.quiet and not posted):
+    if webhook and send:
         for part in chunks(report):
             slack_post(webhook, part)
-    else:
-        print("SLACK_WEBHOOK_URL not set; skipped Slack.", file=sys.stderr)
+    if os.environ.get("GMAIL_APP_PASSWORD") and send:
+        awards = sum(i["category"] != "Update" for i in posted)
+        email_send(report, f"Organisation updates: {len(posted)} new"
+                           + (f", {awards} award/recognition" if awards else "") + f" ({today})")
+    if not webhook and not os.environ.get("GMAIL_APP_PASSWORD"):
+        print("No SLACK_WEBHOOK_URL or GMAIL_APP_PASSWORD set; nothing sent.", file=sys.stderr)
 
     for i in new:
         seen[key_for(i)] = seen[text_key(i)] = today
