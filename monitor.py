@@ -24,6 +24,7 @@ import sys
 import threading
 import time
 import unicodedata
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -39,11 +40,13 @@ UA = "Mozilla/5.0 (compatible; org-update-monitor/1.0)"
 EXA_URL = "https://mcp.exa.ai/mcp"
 JUNK_TITLE = re.compile(r'^(tags?|category|categories|author|topics?|archives?)\s*:|^"?[a-z0-9-]+"?$', re.I)
 
+# Strong signals only, checked against the headline / opening of a post: words like
+# "fellowship", "cohort" or "honoured to partner" appear in everyday posts too.
 AWARD_RE = re.compile(
-    r"\b(award(s|ed|ee)?|wins?|won|winners?|recogni[sz](ed|es|tion)|honou?r(ed|s)?|felicitat\w*|"
-    r"finalists?|shortlist\w*|fellowship|prizes?|grants?|selected (for|as|among|in)|named (among|in|to|as)|"
-    r"\d+ under \d+|special mention|top \d+|cohort|accelerator|ranked|medals?|troph(y|ies)|accolades?|laurels?|"
-    r"funding|raises?|raised|backed by)\b",
+    r"\b(awards?|awarded|awardees?|(win|wins|won) (the|an?|first|second|gold|silver|bronze)|winners?|finalists?|shortlisted|felicitated|prizes?|"
+    r"recogni[sz]ed|recognition|special mention|honou?red (with|by|to receive)|accolades?|troph(y|ies)|"
+    r"\d+ under \d+|named (among|in|to|as)|conferred|"
+    r"(raises|raised|secures|secured) [^.]{0,40}(funding|seed|round|grant|crore|lakh|million|[$₹]))\b",
     re.I,
 )
 
@@ -66,16 +69,23 @@ def http_get(url, headers=None, data=None, tries=3):
 BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36"
 LINKEDIN_GAP = 4.0  # seconds between LinkedIn requests, across all threads
 _li_lock, _li_last = threading.Lock(), [0.0]
+_li_blocked = threading.Event()  # set once LinkedIn rate-limits us; stop asking for the rest of the run
 
 
 def linkedin_fetch(url):
     """Logged-out GET of a public LinkedIn page, one at a time and politely spaced."""
+    if _li_blocked.is_set():
+        raise RuntimeError("LinkedIn rate-limited this run (HTTP 999); skipped")
     with _li_lock:
         wait = _li_last[0] + LINKEDIN_GAP - time.time()
         if wait > 0:
             time.sleep(wait)
         try:
             return http_get(url, headers={"User-Agent": BROWSER_UA, "Accept-Language": "en-US,en"}, tries=1)
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 999):
+                _li_blocked.set()
+            raise
         finally:
             _li_last[0] = time.time()
 
@@ -138,7 +148,7 @@ def mentions(c, text, context_text=None):
         return False
     ctx = [w for w in c["context"].split("|") if w]
     ct = (context_text or text).lower()
-    return not ctx or any(w.lower() in ct for w in ctx)
+    return not ctx or any(re.search(r"(?<![a-z0-9])" + re.escape(w.lower()), ct) for w in ctx)
 
 
 def or_query(c):
@@ -184,9 +194,16 @@ def linkedin_page(c, days):
         if not text:
             continue
         link = re.search(r'href="(https://[a-z]+\.linkedin\.com/posts/[^"?]+)', body)
-        repost = bool(reshare) and not m
+        # Guests see the org's reposts of people's posts with the person as the author
+        actor = re.search(r'aria-label="View (organization page|profile) for ([^"]+)"', body)
+        if actor and actor.group(1) == "profile":
+            prefix = f"Reposted from {clean(actor.group(2))}: "
+        elif reshare and not m:
+            prefix = "Reposted: "
+        else:
+            prefix = ""
         items.append({
-            "title": ("Reposted: " if repost else "") + (text[:160] + ("…" if len(text) > 160 else "")),
+            "title": prefix + (text[:160] + ("…" if len(text) > 160 else "")),
             "url": link.group(1) if link else f"https://www.linkedin.com/feed/update/urn:li:activity:{aid}/",
             # LinkedIn activity IDs carry their creation time in the top 41 bits (ms since epoch)
             "published": datetime.fromtimestamp((int(aid) >> 22) / 1000, timezone.utc),
@@ -223,7 +240,7 @@ def exa_linkedin(c, days):
         title = re.search(r"^Title: (.*)", block, re.M)
         body_text = clean(block.split("Highlights:", 1)[-1])
         items.append({
-            "title": title.group(1).strip() if title else "LinkedIn post",
+            "title": clean(title.group(1)) if title else "LinkedIn post",
             "url": url.group(1),
             "published": parse_date(pub.group(1)) if pub else None,
             "summary": body_text[:400],
@@ -286,11 +303,17 @@ def collect(c, days):
                     continue  # the org's own articles; those come from its website feed
             elif label == "LinkedIn (Exa)" and not mentions(c, f"{i['title']} {i['summary']} {i['url'].replace('-', ' ')}"):
                 continue
-            text = i["title"] + (" " + i["summary"][:300] if i["via"].startswith("LinkedIn") else "")
+            text = i["title"] + (" " + i["summary"][:250] if i["via"].startswith("LinkedIn") else "")
             i["category"] = "Awards, recognition & funding" if AWARD_RE.search(text) else "Update"
             i["company"] = c["name"]
             found.append(i)
     return found, failed
+
+
+def text_key(i):
+    """Same post text under different IDs (an original and its reshare)."""
+    t = re.sub(r"^reposted( from [^:]+)?: ", "", i["title"].lower())
+    return f"{i['company']}|t:" + re.sub(r"[^a-z0-9]+", " ", t).strip()[:80]
 
 
 def key_for(i):
@@ -311,16 +334,23 @@ def render(new, failed_sources, n_companies, days):
     awards = [i for i in new if i["category"] != "Update"]
     lines = [f"*Organisation updates* — {len(new)} new item(s) across {len({i['company'] for i in new})} "
              f"organisation(s) in the last {days} days ({len(awards)} awards, recognition or funding)."]
-    for cat, emoji in (("Awards, recognition & funding", ":trophy:"), ("Update", ":newspaper:")):
-        group = [i for i in new if i["category"] == cat]
-        if not group:
-            continue
-        lines.append(f"\n{emoji} *{cat}*")
-        for company in sorted({i["company"] for i in group}):
+    def link(i):
+        t = i["title"].replace("<", "‹").replace(">", "›").replace("|", "¦")
+        return f"<{i['url']}|{t}> — _{i['via']}, {i['published']:%d %b}_"
+
+    if awards:
+        lines.append("\n:trophy: *Awards, recognition & funding*")
+        for company in sorted({i["company"] for i in awards}):
             lines.append(f"*{company}*")
-            for i in sorted((x for x in group if x["company"] == company), key=lambda x: x["published"], reverse=True):
-                t = i["title"].replace("<", "‹").replace(">", "›").replace("|", "¦")
-                lines.append(f"  • <{i['url']}|{t}> — _{i['via']}, {i['published']:%d %b}_")
+            for i in sorted((x for x in awards if x["company"] == company), key=lambda x: x["published"], reverse=True):
+                lines.append(f"  • {link(i)}")
+    updates = [i for i in new if i["category"] == "Update"]
+    if updates:
+        lines.append("\n:newspaper: *Other updates* (latest per organisation; all of them are in data/updates.csv)")
+        for company in sorted({i["company"] for i in updates}):
+            group = sorted((x for x in updates if x["company"] == company), key=lambda x: x["published"], reverse=True)
+            more = f" _(+{len(group) - 1} more)_" if len(group) > 1 else ""
+            lines.append(f"• *{company}*: {link(group[0])}{more}")
     if not new:
         lines.append(f"Nothing new this cycle (checked {n_companies} organisations).")
     if failed_sources:
@@ -356,16 +386,17 @@ def main():
     with ThreadPoolExecutor(args.workers) as pool:
         results = list(pool.map(lambda c: collect(c, args.days), companies))
 
-    failed_sources, new, today = {}, [], datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    failed_sources, new, taken, today = {}, [], set(), datetime.now(timezone.utc).strftime("%Y-%m-%d")
     for items, failed in results:
         for f in failed:
             if f == "Own website":
                 continue  # one site being down isn't worth a Slack note; see the run log
             failed_sources[f] = failed_sources.get(f, 0) + 1
         for i in items:
-            k = key_for(i)
-            if k in seen or k in {key_for(n) for n in new}:
+            keys = {key_for(i), text_key(i)}
+            if keys & seen.keys() or keys & taken:
                 continue
+            taken |= keys
             new.append(i)
 
     report = render(new, failed_sources, len(companies), args.days)
@@ -385,7 +416,7 @@ def main():
         print("SLACK_WEBHOOK_URL not set; skipped Slack.", file=sys.stderr)
 
     for i in new:
-        seen[key_for(i)] = today
+        seen[key_for(i)] = seen[text_key(i)] = today
     cutoff = (datetime.now(timezone.utc) - timedelta(days=180)).strftime("%Y-%m-%d")
     seen = {k: v for k, v in seen.items() if v >= cutoff}
     with open(SEEN, "w") as f:
