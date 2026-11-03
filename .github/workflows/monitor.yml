@@ -1,0 +1,57 @@
+name: Organisation updates
+
+on:
+  schedule:
+    - cron: "30 2 * * *"            # 08:00 IST: full check incl. LinkedIn pages; always posts
+    - cron: "30 8,14,20 * * *"      # 14:00, 20:00, 02:00 IST: news only; posts only if something is new
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Look-back window in days"
+        default: "2"
+      news_only:
+        description: "Skip LinkedIn company pages"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: org-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check organisations and send alerts
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+        run: |
+          # The daily 08:00 IST run and manual runs check everything; the others are news-only
+          if [ "${{ github.event.schedule }}" = "30 8,14,20 * * *" ] || [ "${{ github.event.inputs.news_only }}" = "true" ]; then
+            python monitor.py --days "${{ github.event.inputs.days || '2' }}" --news-only --quiet
+          else
+            python monitor.py --days "${{ github.event.inputs.days || '2' }}"
+          fi
+
+      - name: Save what was seen
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/seen.json data/updates.csv
+          git diff --cached --quiet && exit 0
+          git commit -m "Update seen items ($(date -u +%F\ %H:%M))"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push
