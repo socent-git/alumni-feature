@@ -465,7 +465,14 @@ def email_send(report, subject):
     """Send the report through Gmail (needs a Gmail app password, not the normal password)."""
     import smtplib
     from email.mime.text import MIMEText
-    user, password = os.environ["GMAIL_ADDRESS"], os.environ["GMAIL_APP_PASSWORD"]
+    user = os.environ.get("GMAIL_ADDRESS", "").strip()
+    password = re.sub(r"\s", "", os.environ.get("GMAIL_APP_PASSWORD", ""))  # Google shows it in groups of 4
+    if "@" not in user:
+        raise SystemExit("Email not sent: the GMAIL_ADDRESS secret is missing or isn't an email address. "
+                         "Add it under Settings → Secrets and variables → Actions.")
+    if len(password) != 16:
+        print(f"Warning: GMAIL_APP_PASSWORD is {len(password)} characters; a Gmail app password has 16.",
+              file=sys.stderr)
     to = [a.strip() for a in (os.environ.get("ALERT_EMAIL_TO") or user).split(",") if a.strip()]
     body = html.escape(report)
     body = re.sub(r"&lt;(https?://[^|]+?)\|(.*?)&gt;", r'<a href="\1">\2</a>', body)  # Slack links
@@ -474,9 +481,15 @@ def email_send(report, subject):
     body = body.replace(":trophy:", "🏆").replace(":newspaper:", "📰").replace("\n", "<br>\n")
     msg = MIMEText(f"<div style='font-family:sans-serif;font-size:14px'>{body}</div>", "html", "utf-8")
     msg["Subject"], msg["From"], msg["To"] = subject, user, ", ".join(to)
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as smtp:
-        smtp.login(user, password)
-        smtp.sendmail(user, to, msg.as_string())
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as smtp:
+            smtp.login(user, password)
+            smtp.sendmail(user, to, msg.as_string())
+    except (smtplib.SMTPAuthenticationError, smtplib.SMTPServerDisconnected) as e:
+        # Exit before saving, so the same items are sent on the next run once this is fixed
+        raise SystemExit(f"Email not sent: Gmail refused the login for {user} ({e}). Check that GMAIL_ADDRESS is "
+                         "the account the app password was created on, and that GMAIL_APP_PASSWORD is that "
+                         "app password (not the normal password).")
 
 
 def chunks(text, size=3500):
@@ -551,7 +564,10 @@ def main():
         email_send(report, f"Organisation updates: {len(posted)} new"
                            + (f", {awards} award/recognition" if awards else "") + f" ({today})")
     if not webhook and not os.environ.get("GMAIL_APP_PASSWORD"):
-        print("No SLACK_WEBHOOK_URL or GMAIL_APP_PASSWORD set; nothing sent.", file=sys.stderr)
+        # Don't mark anything as seen: once an alert channel is connected, these items still get sent
+        print("No SLACK_WEBHOOK_URL or GMAIL_APP_PASSWORD set; nothing sent and nothing marked as seen. "
+              "Results are in this run's summary.", file=sys.stderr)
+        return
 
     for i in new:
         seen[key_for(i)] = seen[text_key(i)] = today
