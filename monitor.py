@@ -5,7 +5,8 @@ website updates, and post anything new to Slack.
 Free sources only, no logins, no API keys:
   - Google News RSS   (news articles)
   - Bing News RSS     (second news source / fallback)
-  - Exa public MCP    (public LinkedIn posts)
+  - LinkedIn page     (the org's public company page, read logged out: latest posts)
+  - Exa public MCP    (public LinkedIn posts by or about the org)
   - Org website RSS   (blog/news posts the org publishes itself)
 
 Usage:
@@ -20,7 +21,9 @@ import json
 import os
 import re
 import sys
+import threading
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -38,7 +41,7 @@ JUNK_TITLE = re.compile(r'^(tags?|category|categories|author|topics?|archives?)\
 
 AWARD_RE = re.compile(
     r"\b(award(s|ed|ee)?|wins?|won|winners?|recogni[sz](ed|es|tion)|honou?r(ed|s)?|felicitat\w*|"
-    r"finalists?|shortlist\w*|fellow(s|ship)?|prizes?|grants?|selected|named (among|in|to|as)|"
+    r"finalists?|shortlist\w*|fellowship|prizes?|grants?|selected (for|as|among|in)|named (among|in|to|as)|"
     r"\d+ under \d+|special mention|top \d+|cohort|accelerator|ranked|medals?|troph(y|ies)|accolades?|laurels?|"
     r"funding|raises?|raised|backed by)\b",
     re.I,
@@ -60,8 +63,26 @@ def http_get(url, headers=None, data=None, tries=3):
     raise last
 
 
+BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36"
+LINKEDIN_GAP = 4.0  # seconds between LinkedIn requests, across all threads
+_li_lock, _li_last = threading.Lock(), [0.0]
+
+
+def linkedin_fetch(url):
+    """Logged-out GET of a public LinkedIn page, one at a time and politely spaced."""
+    with _li_lock:
+        wait = _li_last[0] + LINKEDIN_GAP - time.time()
+        if wait > 0:
+            time.sleep(wait)
+        try:
+            return http_get(url, headers={"User-Agent": BROWSER_UA, "Accept-Language": "en-US,en"}, tries=1)
+        finally:
+            _li_last[0] = time.time()
+
+
 def clean(text):
-    text = re.sub(r"<[^>]+>", " ", html.unescape(text or ""))
+    # NFKC turns LinkedIn's 𝐛𝐨𝐥𝐝 unicode letters back into plain text so keywords match
+    text = unicodedata.normalize("NFKC", re.sub(r"<[^>]+>", " ", html.unescape(text or "")))
     return re.sub(r"\s+", " ", text).strip()
 
 
@@ -144,6 +165,38 @@ def bing_news(c, days):
     return [dict(i, via="Bing News") for i in items]
 
 
+def linkedin_page(c, days):
+    """Latest posts on the org's public LinkedIn page (no login; LinkedIn shows ~10 to guests)."""
+    if not c.get("linkedin"):
+        return []
+    page = linkedin_fetch(c["linkedin"].split("?")[0])
+    if "main-feed-activity-card" not in page:
+        if "authwall" in page or "/uas/login" in page[:5000]:
+            raise RuntimeError("LinkedIn asked for a login (guest view blocked from this network)")
+        return []  # page exists but has no public posts
+    items = []
+    for aid, body in re.findall(r'<article[^>]*data-activity-urn="urn:li:activity:(\d+)"(.*?)</article>', page, re.S):
+        m = re.search(r'data-test-id="main-feed-activity-card__commentary"[^>]*>(.*?)</p>', body, re.S)
+        reshare = re.search(r'data-test-id="feed-reshare-content__commentary"[^>]*>(.*?)</p>', body, re.S)
+        text = clean(m.group(1)) if m else ""
+        if not text and reshare:
+            text = clean(reshare.group(1))
+        if not text:
+            continue
+        link = re.search(r'href="(https://[a-z]+\.linkedin\.com/posts/[^"?]+)', body)
+        repost = bool(reshare) and not m
+        items.append({
+            "title": ("Reposted: " if repost else "") + (text[:160] + ("…" if len(text) > 160 else "")),
+            "url": link.group(1) if link else f"https://www.linkedin.com/feed/update/urn:li:activity:{aid}/",
+            # LinkedIn activity IDs carry their creation time in the top 41 bits (ms since epoch)
+            "published": datetime.fromtimestamp((int(aid) >> 22) / 1000, timezone.utc),
+            "summary": text[:600],
+            "source": "LinkedIn",
+            "via": "LinkedIn page",
+        })
+    return items
+
+
 def exa_linkedin(c, days):
     name = aliases(c)[0]
     body = json.dumps({
@@ -202,7 +255,7 @@ def website_feed(c, days):
 
 
 SOURCES = [("Google News", google_news), ("Bing News", bing_news),
-           ("LinkedIn (Exa)", exa_linkedin), ("Own website", website_feed)]
+           ("LinkedIn page", linkedin_page), ("LinkedIn (Exa)", exa_linkedin), ("Own website", website_feed)]
 
 
 # ---------- pipeline ----------
@@ -233,7 +286,7 @@ def collect(c, days):
                     continue  # the org's own articles; those come from its website feed
             elif label == "LinkedIn (Exa)" and not mentions(c, f"{i['title']} {i['summary']} {i['url'].replace('-', ' ')}"):
                 continue
-            text = i["title"] + (" " + i["summary"][:200] if i["via"] == "LinkedIn (Exa)" else "")
+            text = i["title"] + (" " + i["summary"][:300] if i["via"].startswith("LinkedIn") else "")
             i["category"] = "Awards, recognition & funding" if AWARD_RE.search(text) else "Update"
             i["company"] = c["name"]
             found.append(i)
@@ -241,6 +294,9 @@ def collect(c, days):
 
 
 def key_for(i):
+    post = re.search(r"activity[:-](\d{19})", i["url"])
+    if post:  # same LinkedIn post found via the page and via Exa
+        return f"{i['company']}|li:{post.group(1)}"
     title = re.sub(r"\s+[-|–]\s+[^-|–]+$", "", i["title"].lower())
     title = re.sub(r"[^a-z0-9]+", " ", title).strip()[:90]
     return f"{i['company']}|{title}"
