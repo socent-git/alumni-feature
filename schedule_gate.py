@@ -35,6 +35,8 @@ def decide(now=None):
     today = now.astimezone(IST).strftime("%Y-%m-%d")
     if now.astimezone(IST).hour >= FULL_AT_HOUR and state.get("last_full_date") != today:
         return "full"
+    if now.astimezone(IST).hour == FULL_AT_HOUR - 1 and state.get("last_full_date") != today:
+        return "skip"  # the full check is under an hour away and covers the news too
     last = state.get("last_run_utc")
     if not last or now - datetime.fromisoformat(last) >= timedelta(hours=NEWS_EVERY_HOURS) - timedelta(minutes=10):
         return "news"

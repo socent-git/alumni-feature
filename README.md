@@ -14,10 +14,10 @@ Free: no paid APIs, no keys, no LinkedIn login.
 Every check sends a message, so silence means something is wrong; a crashed check sends a
 "⚠️ check FAILED" alert. Each message opens with a summary of achievements.
 
-GitHub's scheduler sometimes delays or skips runs (on this repo it often doesn't fire at all), so
-the Google Sheet tracker also triggers the workflow hourly, and the workflow wakes every hour and
+GitHub's scheduler often delays or drops runs (on this repo, most of them), so the workflow wakes
+every 10 minutes (the optional Google Sheet tracker can trigger it too), and
 `schedule_gate.py` decides what is due (state in `data/run_state.json`). A skipped slot is
-caught up at the next hourly wake-up; wake-ups with nothing due stop within seconds.
+caught up at the next wake-up that gets through; wake-ups with nothing due stop within seconds.
 News is usually reported within about 6 hours of Google News picking it up.
 
 ## Sources
