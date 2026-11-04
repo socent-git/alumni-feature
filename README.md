@@ -8,10 +8,14 @@ Free: no paid APIs, no keys, no LinkedIn login.
 
 | Time (IST) | What | Alerts |
 |---|---|---|
-| About 08:05 daily | Everything, including LinkedIn company pages | Always sent (says "nothing new" if so) |
-| Every ~6 hours after that | News, founders, websites (no LinkedIn pages) | Sent only when something is new |
+| About 08:05 daily | Everything, including LinkedIn company pages | Always sent |
+| Every ~6 hours after that | News, founders, websites (no LinkedIn pages) | Always sent ("✓ No new updates" when there's nothing) |
 
-GitHub's scheduler sometimes delays or skips runs, so the workflow wakes every hour and
+Every check sends a message, so silence means something is wrong; a crashed check sends a
+"⚠️ check FAILED" alert. Each message opens with a summary of achievements.
+
+GitHub's scheduler sometimes delays or skips runs (on this repo it often doesn't fire at all), so
+the Google Sheet tracker also triggers the workflow hourly, and the workflow wakes every hour and
 `schedule_gate.py` decides what is due (state in `data/run_state.json`). A skipped slot is
 caught up at the next hourly wake-up; wake-ups with nothing due stop within seconds.
 News is usually reported within about 6 hours of Google News picking it up.
@@ -51,6 +55,7 @@ Alerts go to Slack, Gmail, or both: whichever secrets are set. Add secrets in Gi
 | `GMAIL_ADDRESS` | Email | The Gmail address that sends the alerts |
 | `GMAIL_APP_PASSWORD` | Email | A Gmail [app password](https://myaccount.google.com/apppasswords) (needs 2-Step Verification), not the normal password |
 | `ALERT_EMAIL_TO` | Email (optional) | Who receives it, comma-separated; defaults to `GMAIL_ADDRESS` |
+| `TRACKER_WEBHOOK_URL`, `TRACKER_SECRET` | Tracker (optional) | Google Sheet achievements tracker; see [tracker/README.md](tracker/README.md) |
 
 Then **Actions → Organisation updates → Run workflow** to test it now.
 
