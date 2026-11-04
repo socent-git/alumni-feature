@@ -6,12 +6,15 @@ Free: no paid APIs, no keys, no LinkedIn login.
 
 **When it runs** (GitHub Actions):
 
-| Time (IST) | What | Slack |
+| Time (IST) | What | Alerts |
 |---|---|---|
-| 08:00 daily | Everything, including LinkedIn company pages | Always posts (says "nothing new" if so) |
-| 14:00, 20:00, 02:00 | News, founders, websites (no LinkedIn pages) | Posts only when something is new |
+| About 08:05 daily | Everything, including LinkedIn company pages | Always sent (says "nothing new" if so) |
+| Every ~6 hours after that | News, founders, websites (no LinkedIn pages) | Sent only when something is new |
 
-So news is usually reported within about 6 hours of Google News picking it up.
+GitHub's scheduler sometimes delays or skips runs, so the workflow wakes every hour and
+`schedule_gate.py` decides what is due (state in `data/run_state.json`). A skipped slot is
+caught up at the next hourly wake-up; wake-ups with nothing due stop within seconds.
+News is usually reported within about 6 hours of Google News picking it up.
 
 ## Sources
 
