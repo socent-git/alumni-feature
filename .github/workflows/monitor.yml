@@ -2,8 +2,11 @@ name: Organisation updates
 
 on:
   schedule:
-    - cron: "30 2 * * *"            # 08:00 IST: full check incl. LinkedIn pages; always posts
-    - cron: "30 8,14,20 * * *"      # 14:00, 20:00, 02:00 IST: news only; posts only if something is new
+    # Wakes hourly; schedule_gate.py decides whether a check is due. GitHub sometimes skips
+    # scheduled runs, so fixed times alone can miss a day; hourly wake-ups catch up instead.
+    #   full check (incl. LinkedIn pages): first wake-up after 08:00 IST each day, always emails
+    #   news check: every ~6 hours, emails only when something is new
+    - cron: "35 * * * *"   # :35 UTC = :05 IST, so the full check lands about 08:05 IST
   workflow_dispatch:
     inputs:
       days:
@@ -28,29 +31,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Decide what is due
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ github.event.inputs.news_only }}" = "true" ]; then echo "kind=news" >> "$GITHUB_OUTPUT"; else echo "kind=full" >> "$GITHUB_OUTPUT"; fi
+          else
+            echo "kind=$(python3 schedule_gate.py decide)" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/setup-python@v5
+        if: steps.gate.outputs.kind != 'skip'
         with:
           python-version: "3.12"
 
       - name: Check organisations and send alerts
+        if: steps.gate.outputs.kind != 'skip'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
         run: |
-          # The daily 08:00 IST run and manual runs check everything; the others are news-only
-          if [ "${{ github.event.schedule }}" = "30 8,14,20 * * *" ] || [ "${{ github.event.inputs.news_only }}" = "true" ]; then
+          if [ "${{ steps.gate.outputs.kind }}" = "news" ]; then
             python monitor.py --days "${{ github.event.inputs.days || '2' }}" --news-only --quiet
           else
             python monitor.py --days "${{ github.event.inputs.days || '2' }}"
           fi
+          python schedule_gate.py record "${{ steps.gate.outputs.kind }}"
 
       - name: Save what was seen
+        if: steps.gate.outputs.kind != 'skip'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/seen.json data/updates.csv
+          git add data/seen.json data/updates.csv data/run_state.json
           git diff --cached --quiet && exit 0
           git commit -m "Update seen items ($(date -u +%F\ %H:%M))"
           git pull --rebase origin "${GITHUB_REF_NAME}"
