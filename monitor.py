@@ -327,8 +327,15 @@ def collect(c, days, skip=()):
                     continue  # the org's own articles; those come from its website feed
             elif label == "LinkedIn (Exa)" and not mentions(c, f"{i['title']} {i['summary']} {i['url'].replace('-', ' ')}"):
                 continue
-            text = i["title"] + (" " + i["summary"][:250] if i["via"].startswith("LinkedIn") else "")
-            i["category"] = "Awards, recognition & funding" if AWARD_RE.search(text) else "Update"
+            # The achievement must be the point of the item: in the headline or the post's opening two
+            # sentences, not a word buried further down a training or event post
+            opening = " ".join(re.split(r"(?<=[.!?])\s+", i["summary"])[:2]) if i["via"].startswith("LinkedIn") else ""
+            achievement = bool(AWARD_RE.search(f"{i['title']} {opening}"))
+            # An employee's own milestone reposted by the org is routine, unless it's a founder's
+            reposter = re.match(r"Reposted from ([^:]+):", i["title"])
+            if reposter and not any(f.lower() in reposter.group(1).lower() for f in founders(c)):
+                achievement = False
+            i["category"] = "Awards, recognition & funding" if achievement else "Update"
             i["company"] = c["name"]
             found.append(i)
     return found, failed
@@ -425,17 +432,76 @@ def slack_post(webhook, text):
     http_get(webhook, data=data, headers={"Content-Type": "application/json"}, tries=2)
 
 
+# What kind of achievement an item is, checked in this order ("finalist at the X Awards" is a finalist)
+ACHIEVEMENT_KINDS = [
+    ("💰 Grant / funding", re.compile(r"\b(raises|raised|secures|secured|receives?|received|awarded) [^.]{0,40}"
+                                      r"(funding|seed|round|grant|crore|lakh|million|[$₹])|\bgrant (from|of)\b", re.I)),
+    ("🥈 Finalist / shortlisted", re.compile(r"\b(finalists?|shortlisted|nominated|special mention)\b", re.I)),
+    ("🏆 Award / prize", re.compile(r"\b(wins?|won|winners?|awarded|prizes?|awards?|troph(y|ies)|conferred)\b", re.I)),
+    ("🎖 Recognition", re.compile(r"\b(recogni[sz]ed|recognition|felicitated|honou?red|named (among|in|to|as)|"
+                                 r"\d+ under \d+|accolades?|selected)\b", re.I)),
+]
+
+
+def achievement_kind(i):
+    text = f"{i['title']} {i['summary'][:250]}"
+    return next((label for label, rx in ACHIEVEMENT_KINDS if rx.search(text)), "🏆 Award / recognition")
+
+
+def key_sentence(i, words=28):
+    """The one sentence that says what was achieved, without hashtags, emoji or publisher names."""
+    title = re.sub(r"^Reposted( from [^:]+)?: ", "", i["title"])
+    if i["via"].startswith(("Google News", "Bing News")):
+        title = re.sub(r"\s+[-|¦–]\s+[^-|¦–]+$", "", title)  # " - The Hindu"
+        candidates = [title]  # a news headline is already the summary
+    else:
+        candidates = re.split(r"(?<=[.!?])\s+", f"{i['summary'] or title}")
+    best = next((c for c in candidates if AWARD_RE.search(c)), candidates[0] if candidates else title)
+    best = re.sub(r"#\w+|https?://\S+|[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F]", "", best)
+    best = re.sub(r"\s+", " ", best).strip(" -–:")
+    cut = best.split()
+    return " ".join(cut[:words]) + ("…" if len(cut) > words else "")
+
+
+def summary_lines(new):
+    """Plain-language digest for the top of the message: what needs a look, and what doesn't."""
+    awards = [i for i in new if i["category"] != "Update"]
+    updates = [i for i in new if i["category"] == "Update"]
+    out = []
+    if awards:
+        orgs = sorted({i["company"] for i in awards})
+        out.append(f":pushpin: *Summary: {len(orgs)} organisation(s) with achievements to note*")
+        for company in orgs:
+            group = [i for i in awards if i["company"] == company]
+            # Prefer a news headline (crisp, third-party), then the newest post
+            best = sorted(group, key=lambda i: (not i["via"].startswith(("Google News", "Bing News")),
+                                                -i["published"].timestamp()))[0]
+            sources = f" _({len(group)} articles/posts)_" if len(group) > 1 else ""
+            out.append(f"  • *{company}* — {achievement_kind(best)}: {key_sentence(best)}{sources}")
+    else:
+        out.append(":pushpin: *Summary: no awards, grants or recognition in this update.*")
+    if updates:
+        orgs = sorted({i["company"] for i in updates})
+        shown = ", ".join(orgs[:8]) + (f" and {len(orgs) - 8} more" if len(orgs) > 8 else "")
+        out.append(f"  • Routine updates (events, hiring, programme posts; no action needed): "
+                   f"{len(updates)} from {shown}.")
+    out.append("_Details and links below._")
+    return out
+
+
 def render(new, failed_sources, n_companies, days, held=0):
     awards = [i for i in new if i["category"] != "Update"]
     lines = [f"*Organisation updates* — {len(new)} new item(s) across {len({i['company'] for i in new})} "
-             f"organisation(s) in the last {days} days ({len(awards)} awards, recognition or funding)."]
+             f"organisation(s) in the last {days} days ({len(awards)} awards, recognition or funding).", ""]
+    if new:
+        lines += summary_lines(new)
     def link(i):
         t = i["title"].replace("<", "‹").replace(">", "›").replace("|", "¦")
         score = "✓✓✓" if len(i.get("checks", [])) >= 3 else "✓✓"
         return f"<{i['url']}|{t}> — _{i['via']}, {i['published']:%d %b}_ {score}"
 
     if awards:
-        lines.append("\n:trophy: *Awards, recognition & funding*")
+        lines.append("\n———\n:trophy: *Awards, recognition & funding — details*")
         for company in sorted({i["company"] for i in awards}):
             lines.append(f"*{company}*")
             group = sorted((x for x in awards if x["company"] == company), key=lambda x: x["published"], reverse=True)
@@ -478,7 +544,7 @@ def email_send(report, subject):
     body = re.sub(r"&lt;(https?://[^|]+?)\|(.*?)&gt;", r'<a href="\1">\2</a>', body)  # Slack links
     body = re.sub(r"\*([^*\n]+)\*", r"<b>\1</b>", body)
     body = re.sub(r"(?<![a-z0-9])_([^_\n]+)_(?![a-z0-9])", r"<i>\1</i>", body)
-    body = body.replace(":trophy:", "🏆").replace(":newspaper:", "📰").replace("\n", "<br>\n")
+    body = body.replace(":trophy:", "🏆").replace(":newspaper:", "📰").replace(":pushpin:", "📌").replace("\n", "<br>\n")
     msg = MIMEText(f"<div style='font-family:sans-serif;font-size:14px'>{body}</div>", "html", "utf-8")
     msg["Subject"], msg["From"], msg["To"] = subject, user, ", ".join(to)
     try:
