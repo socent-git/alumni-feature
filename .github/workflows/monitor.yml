@@ -5,7 +5,7 @@ on:
     # GitHub's scheduler is best effort and on this repo drops most wake-ups (7 of 8 hourly
     # ones on 4 Nov). So it wakes every 10 minutes and schedule_gate.py decides what is due:
     #   full check (incl. LinkedIn pages): first wake-up after 08:00 IST each day
-    #   news check: every ~6 hours; every check emails, "No new updates" included
+    #   news checks: 14:00, 20:00 and 02:00 IST; every check emails, "No new updates" included
     # Wake-ups with nothing due stop within seconds (free: the repo is public). The optional
     # Google Sheet tracker can also trigger it (mode=auto); whichever fires first does the check.
     - cron: "4-59/10 * * * *"   # minutes 04, 14, … 54; avoids the busy top of the hour
