@@ -9,7 +9,7 @@ Free: no paid APIs, no keys, no LinkedIn login.
 | Time (IST) | What | Alerts |
 |---|---|---|
 | About 08:05 daily | Everything, including LinkedIn company pages | Always sent |
-| Every ~6 hours after that | News, founders, websites (no LinkedIn pages) | Always sent ("✓ No new updates" when there's nothing) |
+| 14:00, 20:00, 02:00 | News, founders, websites (no LinkedIn pages) | Always sent ("✓ No new updates" when there's nothing) |
 
 Every check sends a message, so silence means something is wrong; a crashed check sends a
 "⚠️ check FAILED" alert. Each message opens with a summary of achievements.
