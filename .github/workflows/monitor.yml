@@ -2,11 +2,13 @@ name: Organisation updates
 
 on:
   schedule:
-    # Wakes hourly; schedule_gate.py decides whether a check is due. GitHub sometimes skips
-    # scheduled runs, so fixed times alone can miss a day; hourly wake-ups catch up instead.
-    #   full check (incl. LinkedIn pages): first wake-up after 08:00 IST each day, always emails
-    #   news check: every ~6 hours, emails only when something is new
-    - cron: "35 * * * *"   # :35 UTC = :05 IST, so the full check lands about 08:05 IST
+    # GitHub's scheduler is best effort and on this repo drops most wake-ups (7 of 8 hourly
+    # ones on 4 Nov). So it wakes every 10 minutes and schedule_gate.py decides what is due:
+    #   full check (incl. LinkedIn pages): first wake-up after 08:00 IST each day
+    #   news check: every ~6 hours; every check emails, "No new updates" included
+    # Wake-ups with nothing due stop within seconds (free: the repo is public). The optional
+    # Google Sheet tracker can also trigger it (mode=auto); whichever fires first does the check.
+    - cron: "4-59/10 * * * *"   # minutes 04, 14, … 54; avoids the busy top of the hour
   workflow_dispatch:
     inputs:
       days:
@@ -16,6 +18,9 @@ on:
         description: "Skip LinkedIn company pages"
         type: boolean
         default: false
+      mode:
+        description: "full / news / auto (auto = run only what is due; used by the hourly trigger from the Google Sheet)"
+        default: "full"
 
 permissions:
   contents: write
@@ -34,10 +39,13 @@ jobs:
       - name: Decide what is due
         id: gate
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            if [ "${{ github.event.inputs.news_only }}" = "true" ]; then echo "kind=news" >> "$GITHUB_OUTPUT"; else echo "kind=full" >> "$GITHUB_OUTPUT"; fi
-          else
+          mode="${{ github.event.inputs.mode }}"
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "$mode" = "auto" ]; then
             echo "kind=$(python3 schedule_gate.py decide)" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.inputs.news_only }}" = "true" ] || [ "$mode" = "news" ]; then
+            echo "kind=news" >> "$GITHUB_OUTPUT"
+          else
+            echo "kind=full" >> "$GITHUB_OUTPUT"
           fi
 
       - uses: actions/setup-python@v5
@@ -52,9 +60,11 @@ jobs:
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+          TRACKER_WEBHOOK_URL: ${{ secrets.TRACKER_WEBHOOK_URL }}
+          TRACKER_SECRET: ${{ secrets.TRACKER_SECRET }}
         run: |
           if [ "${{ steps.gate.outputs.kind }}" = "news" ]; then
-            python monitor.py --days "${{ github.event.inputs.days || '2' }}" --news-only --quiet
+            python monitor.py --days "${{ github.event.inputs.days || '2' }}" --news-only
           else
             python monitor.py --days "${{ github.event.inputs.days || '2' }}"
           fi
@@ -70,3 +80,12 @@ jobs:
           git commit -m "Update seen items ($(date -u +%F\ %H:%M))"
           git pull --rebase origin "${GITHUB_REF_NAME}"
           git push
+
+      - name: Alert if this check failed
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+        run: python3 monitor.py --failure-alert "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

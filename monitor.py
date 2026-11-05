@@ -558,6 +558,33 @@ def email_send(report, subject):
                          "app password (not the normal password).")
 
 
+def tracker_post(posted, check):
+    """Send achievements (and a heartbeat) to the Google Sheet tracker, if one is connected."""
+    url = os.environ.get("TRACKER_WEBHOOK_URL")
+    if not url:
+        return
+    items = [{
+        "id": key_for(i), "organisation": i["company"], "type": achievement_kind(i),
+        "summary": key_sentence(i, words=40), "url": i["url"], "source": i["via"],
+        "published": i["published"].strftime("%Y-%m-%d"),
+    } for i in posted if i["category"] != "Update"]
+    body = json.dumps({"secret": os.environ.get("TRACKER_SECRET", ""), "check": check, "items": items}).encode()
+    try:
+        http_get(url, data=body, headers={"Content-Type": "application/json"}, tries=2)
+    except Exception as e:  # the email already went out; don't fail the run over the sheet
+        print(f"Tracker not updated: {e}", file=sys.stderr)
+
+
+def failure_alert(run_url):
+    """Called by the workflow when a run crashes, so a broken run is never silent."""
+    if os.environ.get("GMAIL_APP_PASSWORD"):
+        email_send(f"*The organisation update check failed.*\n\nNo updates were lost: anything it would have "
+                   f"found is picked up by the next successful run.\n\nRun log: <{run_url}|open on GitHub>",
+                   "⚠️ Organisation update check FAILED")
+    if os.environ.get("SLACK_WEBHOOK_URL"):
+        slack_post(os.environ["SLACK_WEBHOOK_URL"], f":warning: Organisation update check failed: <{run_url}|run log>")
+
+
 def chunks(text, size=3500):
     out, cur = [], ""
     for line in text.split("\n"):
@@ -576,8 +603,11 @@ def main():
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--news-only", action="store_true",
                     help="skip LinkedIn company pages (for the extra runs during the day)")
-    ap.add_argument("--quiet", action="store_true", help="don't post to Slack when nothing is new")
+    ap.add_argument("--quiet", action="store_true", help="don't send anything when nothing is new")
+    ap.add_argument("--failure-alert", metavar="RUN_URL", help="send a 'check failed' alert and exit")
     args = ap.parse_args()
+    if args.failure_alert:
+        return failure_alert(args.failure_alert)
 
     companies = list(csv.DictReader(open(COMPANIES, encoding="utf-8")))
     if args.only:
@@ -621,14 +651,22 @@ def main():
         return
 
     send = not (args.quiet and not posted)
+    check = "news check" if args.news_only else "daily check"
+    when = datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%d %b, %I:%M %p IST")
+    achievers = sorted({i["company"] for i in posted if i["category"] != "Update"})
+    if posted:
+        subject = (f"🏆 {len(achievers)} achievement(s): {', '.join(achievers[:3])}" if achievers
+                   else f"Organisation updates: {len(posted)} routine update(s)") + f" ({check}, {when})"
+    else:
+        # Sent on purpose: an empty check still emails, so silence always means something is wrong
+        subject = f"✓ No new updates ({check}, {when}, {len(companies)} organisations checked)"
     webhook = os.environ.get("SLACK_WEBHOOK_URL")
     if webhook and send:
         for part in chunks(report):
             slack_post(webhook, part)
     if os.environ.get("GMAIL_APP_PASSWORD") and send:
-        awards = sum(i["category"] != "Update" for i in posted)
-        email_send(report, f"Organisation updates: {len(posted)} new"
-                           + (f", {awards} award/recognition" if awards else "") + f" ({today})")
+        email_send(report, subject)
+    tracker_post(posted, check)
     if not webhook and not os.environ.get("GMAIL_APP_PASSWORD"):
         # Don't mark anything as seen: once an alert channel is connected, these items still get sent
         print("No SLACK_WEBHOOK_URL or GMAIL_APP_PASSWORD set; nothing sent and nothing marked as seen. "
