@@ -32,24 +32,16 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 
+import classify
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 COMPANIES = os.path.join(ROOT, "data", "companies.csv")
 SEEN = os.path.join(ROOT, "data", "seen.json")
 UPDATES = os.path.join(ROOT, "data", "updates.csv")
 UA = "Mozilla/5.0 (compatible; org-update-monitor/1.0)"
 EXA_URL = "https://mcp.exa.ai/mcp"
-JUNK_TITLE = re.compile(r'^(tags?|category|categories|author|topics?|archives?)\s*:|^"?[a-z0-9-]+"?$', re.I)
-
-# Strong signals only, checked against the headline / opening of a post: words like
-# "fellowship", "cohort" or "honoured to partner" appear in everyday posts too.
-AWARD_RE = re.compile(
-    r"\b(awards?|awarded|awardees?|(win|wins|won) (the|an?|first|second|gold|silver|bronze)|winners?|finalists?|shortlisted|felicitated|prizes?|"
-    r"recogni[sz]ed|recognition|special mention|honou?red (with|by|to receive)|accolades?|troph(y|ies)|"
-    r"\d+ under \d+|named (among|in|to|as)|conferred|"
-    r"(raises|raised|secures|secured) [^.]{0,40}(funding|seed|round|grant|crore|lakh|million|[$₹]))\b",
-    re.I,
-)
-
+JUNK_TITLE = re.compile(r'^(tags?|category|categories|author|topics?|archives?)\s*:|^"?[a-z0-9-]+"?$|'
+                        r'current affairs|daily updates for|\bquiz\b|\bmcqs?\b', re.I)
 
 # ---------- helpers ----------
 
@@ -327,15 +319,12 @@ def collect(c, days, skip=()):
                     continue  # the org's own articles; those come from its website feed
             elif label == "LinkedIn (Exa)" and not mentions(c, f"{i['title']} {i['summary']} {i['url'].replace('-', ' ')}"):
                 continue
-            # The achievement must be the point of the item: in the headline or the post's opening two
-            # sentences, not a word buried further down a training or event post
-            opening = " ".join(re.split(r"(?<=[.!?])\s+", i["summary"])[:2]) if i["via"].startswith("LinkedIn") else ""
-            achievement = bool(AWARD_RE.search(f"{i['title']} {opening}"))
             # An employee's own milestone reposted by the org is routine, unless it's a founder's
             reposter = re.match(r"Reposted from ([^:]+):", i["title"])
-            if reposter and not any(f.lower() in reposter.group(1).lower() for f in founders(c)):
-                achievement = False
-            i["category"] = "Awards, recognition & funding" if achievement else "Update"
+            staff = bool(reposter) and not any(f.lower() in reposter.group(1).lower() for f in founders(c))
+            i["tier"], i["kind"] = classify.classify(i["title"], i["summary"], i["via"], employee_repost=staff,
+                                                     media_org="notable" in c.get("skip", ""))
+            i["category"] = f"{classify.TIER_NAMES[i['tier']]}: {i['kind']}"
             i["company"] = c["name"]
             found.append(i)
     return found, failed
@@ -386,11 +375,17 @@ def real_url(url):
     return m.group(1) if m else url
 
 
+INDIA_RE = re.compile(
+    r"\b(India|Indian|Bharat|Delhi|Mumbai|Bengaluru|Bangalore|Pune|Hyderabad|Chennai|Kolkata|Maharashtra|"
+    r"Karnataka|Bihar|Uttar Pradesh|Rajasthan|Odisha|Tamil Nadu|Telangana|Kerala|Gujarat|Assam|Punjab|Haryana|"
+    r"Jharkhand|Madhya Pradesh|Chhattisgarh|Uttarakhand|Himachal|Andhra|Nagaland|Mizoram|Meghalaya|crore|lakh)\b|₹")
+
+
 def article_text(url):
     """(visible text, raw html) of an article, without menus, sidebars and footers."""
     page = http_get(url, headers={"User-Agent": BROWSER_UA}, tries=1)
     body = re.sub(r"(?is)<(script|style|nav|aside|footer|header|form|noscript)\b.*?</\1>", " ", page)
-    return clean(body).lower(), page.lower()
+    return clean(body), page.lower()
 
 
 def near(text, a, b, window=300):
@@ -404,14 +399,15 @@ def three_checks(c, i):
     slug = re.search(r"linkedin\.com/company/([^/?#]+)", c.get("linkedin", ""))
     if i["via"] in OWN_CHANNELS or (slug and f"/posts/{slug.group(1).lower()}_" in i["url"].lower()):
         return ["own channel"] * 3
-    text, page = f"{i['title']} {i['summary']}".lower(), ""
+    raw, page = f"{i['title']} {i['summary']}", ""
     if i["via"].startswith(("Google News", "Bing News")):
         try:
             i["url"] = real_url(i["url"])
-            text, page = article_text(i["url"])
-            text = f"{i['title'].lower()} {text}"
+            body, page = article_text(i["url"])
+            raw = f"{i['title']} {body}"
         except Exception:
             pass  # judge on the headline alone; it will usually score low and be held
+    text = raw.lower()
     names = [a.lower() for a in aliases(c)]
     org_in_text = mentions(c, text)
     founders_in = [f for f in founders(c) if re.search(r"(?<![a-z])" + re.escape(f.lower()) + r"(?![a-z])", text)]
@@ -424,6 +420,13 @@ def three_checks(c, i):
     if any(f.lower() in i["title"].lower() for f in founders(c)) or any(
             near(text, f.lower(), n) for f in founders_in for n in names):
         passed.append("founder link")
+    # The article is about this org, not a passing mention: its name, spelled with its capitals, appears
+    # at least twice, in an Indian story. Lets through coverage that never names a founder
+    # ("Mitti Cafe opens new outlet") while "will transform schools" or a same-name firm abroad stays out.
+    if not c["context"] or mentions(c, text):
+        hits = sum(len(re.findall(r"(?<![A-Za-z0-9])" + re.escape(a) + r"(?![A-Za-z0-9])", raw)) for a in aliases(c))
+        if hits >= 2 and INDIA_RE.search(raw):
+            passed.append("org prominent")
     return passed
 
 
@@ -432,103 +435,134 @@ def slack_post(webhook, text):
     http_get(webhook, data=data, headers={"Content-Type": "application/json"}, tries=2)
 
 
-# What kind of achievement an item is, checked in this order ("finalist at the X Awards" is a finalist)
-ACHIEVEMENT_KINDS = [
-    ("💰 Grant / funding", re.compile(r"\b(raises|raised|secures|secured|receives?|received|awarded) [^.]{0,40}"
-                                      r"(funding|seed|round|grant|crore|lakh|million|[$₹])|\bgrant (from|of)\b", re.I)),
-    ("🥈 Finalist / shortlisted", re.compile(r"\b(finalists?|shortlisted|nominated|special mention)\b", re.I)),
-    ("🏆 Award / prize", re.compile(r"\b(wins?|won|winners?|awarded|prizes?|awards?|troph(y|ies)|conferred)\b", re.I)),
-    ("🎖 Recognition", re.compile(r"\b(recogni[sz]ed|recognition|felicitated|honou?red|named (among|in|to|as)|"
-                                 r"\d+ under \d+|accolades?|selected)\b", re.I)),
+# ---------- report ----------
+
+SECTIONS = [
+    ("A", "🏆", "ACHIEVEMENTS", "awards, recognition, grants, funding"),
+    ("B", "⭐", "NOTABLE UPDATES", "partnerships, government, milestones, announcements, news coverage"),
 ]
 
 
-def achievement_kind(i):
-    text = f"{i['title']} {i['summary'][:250]}"
-    return next((label for label, rx in ACHIEVEMENT_KINDS if rx.search(text)), "🏆 Award / recognition")
-
-
-def key_sentence(i, words=28):
-    """The one sentence that says what was achieved, without hashtags, emoji or publisher names."""
-    title = re.sub(r"^Reposted( from [^:]+)?: ", "", i["title"])
-    if i["via"].startswith(("Google News", "Bing News")):
-        title = re.sub(r"\s+[-|¦–]\s+[^-|¦–]+$", "", title)  # " - The Hindu"
-        candidates = [title]  # a news headline is already the summary
-    else:
-        candidates = re.split(r"(?<=[.!?])\s+", f"{i['summary'] or title}")
-    best = next((c for c in candidates if AWARD_RE.search(c)), candidates[0] if candidates else title)
-    best = re.sub(r"#\w+|https?://\S+|[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F]", "", best)
-    best = re.sub(r"\s+", " ", best).strip(" -–:")
-    cut = best.split()
-    return " ".join(cut[:words]) + ("…" if len(cut) > words else "")
-
-
-def summary_lines(new):
-    """Plain-language digest for the top of the message: what needs a look, and what doesn't."""
-    awards = [i for i in new if i["category"] != "Update"]
-    updates = [i for i in new if i["category"] == "Update"]
+def stories(items, tier):
+    """One entry per organisation and kind: the clearest item first, the rest as extra links."""
+    groups = {}
+    for i in items:
+        if i["tier"] == tier:
+            groups.setdefault((i["company"], i["kind"]), []).append(i)
     out = []
-    if awards:
-        orgs = sorted({i["company"] for i in awards})
-        out.append(f":pushpin: *Summary: {len(orgs)} organisation(s) with achievements to note*")
-        for company in orgs:
-            group = [i for i in awards if i["company"] == company]
-            # Prefer a news headline (crisp, third-party), then the newest post
-            best = sorted(group, key=lambda i: (not i["via"].startswith(("Google News", "Bing News")),
-                                                -i["published"].timestamp()))[0]
-            sources = f" _({len(group)} articles/posts)_" if len(group) > 1 else ""
-            out.append(f"  • *{company}* — {achievement_kind(best)}: {key_sentence(best)}{sources}")
-    else:
-        out.append(":pushpin: *Summary: no awards, grants or recognition in this update.*")
-    if updates:
-        orgs = sorted({i["company"] for i in updates})
-        shown = ", ".join(orgs[:8]) + (f" and {len(orgs) - 8} more" if len(orgs) > 8 else "")
-        out.append(f"  • Routine updates (events, hiring, programme posts; no action needed): "
-                   f"{len(updates)} from {shown}.")
-    out.append("_Details and links below._")
+    for (company, kind), group in sorted(groups.items()):
+        # A news headline is the crispest statement; otherwise the newest post
+        group.sort(key=lambda i: (not i["via"].startswith(classify.NEWS), -i["published"].timestamp()))
+        best = group[0]
+        out.append({"company": company, "kind": kind, "best": best, "others": group[1:],
+                    "what": classify.key_sentence(best["title"], best["summary"], best["via"], kind)})
     return out
 
 
-def render(new, failed_sources, n_companies, days, held=0):
-    awards = [i for i in new if i["category"] != "Update"]
-    lines = [f"*Organisation updates* — {len(new)} new item(s) across {len({i['company'] for i in new})} "
-             f"organisation(s) in the last {days} days ({len(awards)} awards, recognition or funding).", ""]
-    if new:
-        lines += summary_lines(new)
-    def link(i):
-        t = i["title"].replace("<", "‹").replace(">", "›").replace("|", "¦")
-        score = "✓✓✓" if len(i.get("checks", [])) >= 3 else "✓✓"
-        return f"<{i['url']}|{t}> — _{i['via']}, {i['published']:%d %b}_ {score}"
+def source_name(i):
+    if i["via"].startswith(classify.NEWS):
+        m = re.search(r"\s[-|¦–]\s+([^-|¦–]+)$", i["title"])
+        return m.group(1).strip() if m else (i.get("source") or "news article")
+    return {"LinkedIn page": "their LinkedIn page", "Own website": "their website"}.get(i["via"], "LinkedIn post")
 
-    if awards:
-        lines.append("\n———\n:trophy: *Awards, recognition & funding — details*")
-        for company in sorted({i["company"] for i in awards}):
-            lines.append(f"*{company}*")
-            group = sorted((x for x in awards if x["company"] == company), key=lambda x: x["published"], reverse=True)
-            for i in group[:3]:  # one award often gets a dozen articles; show the newest few
-                lines.append(f"  • {link(i)}")
-            if len(group) > 3:
-                lines.append(f"  _+{len(group) - 3} more articles/posts (see data/updates.csv)_")
-    updates = [i for i in new if i["category"] == "Update"]
-    if updates:
-        lines.append("\n:newspaper: *Other updates* (latest per organisation; all of them are in data/updates.csv)")
-        for company in sorted({i["company"] for i in updates}):
-            group = sorted((x for x in updates if x["company"] == company), key=lambda x: x["published"], reverse=True)
-            more = f" _(+{len(group) - 1} more)_" if len(group) > 1 else ""
-            lines.append(f"• *{company}*: {link(group[0])}{more}")
-    if not new:
-        lines.append(f"Nothing new this cycle (checked {n_companies} organisations).")
+
+def routine_groups(items):
+    groups = {}
+    for i in items:
+        if i["tier"] == "C":
+            groups.setdefault(i["kind"], {}).setdefault(i["company"], []).append(i)
+    return groups
+
+
+def headline(posted, check, when):
+    a, b = len(stories(posted, "A")), len(stories(posted, "B"))
+    c = sum(i["tier"] == "C" for i in posted)
+    return f"Organisation updates — {check}, {when}", (
+        f"🏆 {a} achievement{'s' * (a != 1)}  ·  ⭐ {b} notable update{'s' * (b != 1)}  ·  "
+        f"{c} routine post{'s' * (c != 1)}")
+
+
+def footer_notes(failed_sources, n_companies, held):
+    notes = [f"{n_companies} organisations checked."]
     if held:
-        lines.append(f"\n_{held} lower-confidence item(s) passed fewer than 2 of 3 checks and were held "
-                     f"for review (data/updates.csv, status \"held\")._")
+        notes.append(f"{held} other search result(s) could not be tied to the organisation (usually a "
+                     f"same-name company or person) and were left out; they are logged in data/updates.csv.")
     if failed_sources:
-        lines.append("\n_Unavailable this run (will retry next cycle): "
-                     + ", ".join(f"{k} ×{v}" for k, v in sorted(failed_sources.items())) + "_")
+        notes.append("Could not be read this time (will retry next check): "
+                     + ", ".join(f"{k} for {v} organisation(s)" for k, v in sorted(failed_sources.items())) + ".")
+    return notes
+
+
+def render(posted, failed_sources, n_companies, days, held=0, check="check", when=""):
+    """Plain-text report (Slack formatting): summary first, routine posts last."""
+    esc = lambda t: t.replace("<", "‹").replace(">", "›").replace("|", "¦")
+    title, glance = headline(posted, check, when)
+    lines = [f"*{title}*", glance]
+    if not posted:
+        lines.append("\nNothing new since the last check.")
+    for tier, emoji, name, about in SECTIONS:
+        group = stories(posted, tier)
+        if not group:
+            continue
+        lines.append(f"\n{emoji} *{name}* ({about})")
+        for n, s in enumerate(group, 1):
+            b = s["best"]
+            lines.append(f"*{n}. {s['company']}* — {s['kind']}")
+            lines.append(f"{esc(s['what'])}")
+            more = "".join(f", <{o['url']}|{esc(source_name(o))}>" for o in s["others"][:4])
+            extra = f" (+{len(s['others']) - 4} more)" if len(s["others"]) > 4 else ""
+            lines.append(f"Source: <{b['url']}|{esc(source_name(b))}>{more}{extra} · {b['published']:%d %b}")
+    routine = routine_groups(posted)
+    if routine:
+        lines.append(f"\n*ROUTINE POSTS — no action needed* ({sum(i['tier'] == 'C' for i in posted)})")
+        for kind in sorted(routine):
+            orgs = ", ".join(f"<{v[0]['url']}|{esc(k)}>" + (f" ×{len(v)}" if len(v) > 1 else "")
+                             for k, v in sorted(routine[kind].items()))
+            lines.append(f"{kind}: {orgs}")
+    lines.append("\n_" + " ".join(footer_notes(failed_sources, n_companies, held)) + "_")
     return "\n".join(lines)
 
 
+def render_html(posted, failed_sources, n_companies, days, held=0, check="check", when=""):
+    """The same report as an email: headings, numbered achievements, one line each."""
+    e = html.escape
+    link = lambda i, text: f'<a href="{e(i["url"], quote=True)}">{e(text)}</a>'
+    title, glance = headline(posted, check, when)
+    out = [f'<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5;color:#222;max-width:720px">',
+           f'<h2 style="margin:0 0 4px">{e(title)}</h2>',
+           f'<p style="margin:0 0 16px;font-size:15px"><b>{e(glance)}</b></p>']
+    if not posted:
+        out.append("<p>Nothing new since the last check.</p>")
+    for tier, emoji, name, about in SECTIONS:
+        group = stories(posted, tier)
+        if not group:
+            continue
+        colour = "#b7791f" if tier == "A" else "#2b6cb0"
+        out.append(f'<h3 style="margin:18px 0 6px;color:{colour}">{emoji} {name} '
+                   f'<span style="font-weight:normal;font-size:12px;color:#666">({e(about)})</span></h3><ol>')
+        for s in group:
+            b = s["best"]
+            more = "".join(", " + link(o, source_name(o)) for o in s["others"][:4])
+            extra = f" (+{len(s['others']) - 4} more)" if len(s["others"]) > 4 else ""
+            out.append(f'<li style="margin-bottom:10px"><b>{e(s["company"])}</b> — {e(s["kind"])}<br>'
+                       f'{e(s["what"])}<br><span style="font-size:12px;color:#555">Source: '
+                       f'{link(b, source_name(b))}{more}{extra} · {b["published"]:%d %b}</span></li>')
+        out.append("</ol>")
+    routine = routine_groups(posted)
+    if routine:
+        out.append(f'<h3 style="margin:18px 0 6px;color:#555">Routine posts — no action needed '
+                   f'({sum(i["tier"] == "C" for i in posted)})</h3>')
+        for kind in sorted(routine):
+            orgs = ", ".join(link(v[0], k) + (f" ×{len(v)}" if len(v) > 1 else "")
+                             for k, v in sorted(routine[kind].items()))
+            out.append(f'<p style="margin:4px 0;font-size:13px;color:#444"><b>{e(kind)}:</b> {orgs}</p>')
+    out.append('<p style="margin-top:18px;font-size:12px;color:#777">'
+               + e(" ".join(footer_notes(failed_sources, n_companies, held))) + "</p></div>")
+    return "\n".join(out)
+
+
 def email_send(report, subject):
-    """Send the report through Gmail (needs a Gmail app password, not the normal password)."""
+    """Send an HTML report through Gmail (needs a Gmail app password, not the normal password)."""
     import smtplib
     from email.mime.text import MIMEText
     user = os.environ.get("GMAIL_ADDRESS", "").strip()
@@ -540,12 +574,7 @@ def email_send(report, subject):
         print(f"Warning: GMAIL_APP_PASSWORD is {len(password)} characters; a Gmail app password has 16.",
               file=sys.stderr)
     to = [a.strip() for a in (os.environ.get("ALERT_EMAIL_TO") or user).split(",") if a.strip()]
-    body = html.escape(report)
-    body = re.sub(r"&lt;(https?://[^|]+?)\|(.*?)&gt;", r'<a href="\1">\2</a>', body)  # Slack links
-    body = re.sub(r"\*([^*\n]+)\*", r"<b>\1</b>", body)
-    body = re.sub(r"(?<![a-z0-9])_([^_\n]+)_(?![a-z0-9])", r"<i>\1</i>", body)
-    body = body.replace(":trophy:", "🏆").replace(":newspaper:", "📰").replace(":pushpin:", "📌").replace("\n", "<br>\n")
-    msg = MIMEText(f"<div style='font-family:sans-serif;font-size:14px'>{body}</div>", "html", "utf-8")
+    msg = MIMEText(report, "html", "utf-8")
     msg["Subject"], msg["From"], msg["To"] = subject, user, ", ".join(to)
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as smtp:
@@ -564,10 +593,10 @@ def tracker_post(posted, check):
     if not url:
         return
     items = [{
-        "id": key_for(i), "organisation": i["company"], "type": achievement_kind(i),
-        "summary": key_sentence(i, words=40), "url": i["url"], "source": i["via"],
-        "published": i["published"].strftime("%Y-%m-%d"),
-    } for i in posted if i["category"] != "Update"]
+        "id": key_for(st["best"]), "organisation": st["company"], "type": st["kind"],
+        "summary": st["what"], "url": st["best"]["url"], "source": st["best"]["via"],
+        "published": st["best"]["published"].strftime("%Y-%m-%d"),
+    } for st in stories(posted, "A") + stories(posted, "B")]
     body = json.dumps({"secret": os.environ.get("TRACKER_SECRET", ""), "check": check, "items": items}).encode()
     try:
         http_get(url, data=body, headers={"Content-Type": "application/json"}, tries=2)
@@ -578,8 +607,9 @@ def tracker_post(posted, check):
 def failure_alert(run_url):
     """Called by the workflow when a run crashes, so a broken run is never silent."""
     if os.environ.get("GMAIL_APP_PASSWORD"):
-        email_send(f"*The organisation update check failed.*\n\nNo updates were lost: anything it would have "
-                   f"found is picked up by the next successful run.\n\nRun log: <{run_url}|open on GitHub>",
+        email_send(f"<p><b>The organisation update check failed.</b></p><p>No updates were lost: anything it "
+                   f"would have found is picked up by the next successful check.</p>"
+                   f'<p><a href="{html.escape(run_url, quote=True)}">Open the run log on GitHub</a></p>',
                    "⚠️ Organisation update check FAILED")
     if os.environ.get("SLACK_WEBHOOK_URL"):
         slack_post(os.environ["SLACK_WEBHOOK_URL"], f":warning: Organisation update check failed: <{run_url}|run log>")
@@ -605,6 +635,8 @@ def main():
                     help="skip LinkedIn company pages (for the extra runs during the day)")
     ap.add_argument("--quiet", action="store_true", help="don't send anything when nothing is new")
     ap.add_argument("--failure-alert", metavar="RUN_URL", help="send a 'check failed' alert and exit")
+    ap.add_argument("--ignore-seen", action="store_true",
+                    help="with --dry-run: include items already reported (for testing the rules)")
     args = ap.parse_args()
     if args.failure_alert:
         return failure_alert(args.failure_alert)
@@ -613,6 +645,8 @@ def main():
     if args.only:
         companies = [c for c in companies if args.only.lower() in c["name"].lower()]
     seen = json.load(open(SEEN)) if os.path.exists(SEEN) else {}
+    if args.ignore_seen and args.dry_run:
+        seen = {}
     by_name = {c["name"]: c for c in companies}
 
     print(f"Checking {len(companies)} organisations, last {args.days} days…", file=sys.stderr)
@@ -641,7 +675,9 @@ def main():
     posted = [i for i in new if len(i["checks"]) >= 2]
     print(f"Three-layer check: {len(posted)} passed, {len(held)} held for review", file=sys.stderr)
 
-    report = render(posted, failed_sources, len(companies), args.days, len(held))
+    check = "news check" if args.news_only else "daily check"
+    when = datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%d %b, %I:%M %p IST")
+    report = render(posted, failed_sources, len(companies), args.days, len(held), check, when)
     print(report)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
@@ -651,21 +687,26 @@ def main():
         return
 
     send = not (args.quiet and not posted)
-    check = "news check" if args.news_only else "daily check"
-    when = datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%d %b, %I:%M %p IST")
-    achievers = sorted({i["company"] for i in posted if i["category"] != "Update"})
-    if posted:
-        subject = (f"🏆 {len(achievers)} achievement(s): {', '.join(achievers[:3])}" if achievers
-                   else f"Organisation updates: {len(posted)} routine update(s)") + f" ({check}, {when})"
+    top, notable = stories(posted, "A"), stories(posted, "B")
+    names = lambda group: ", ".join(dict.fromkeys(s["company"] for s in group))
+    if top:
+        subject = f"🏆 {len(top)} achievement{'s' * (len(top) != 1)}: {names(top[:3])}"
+        if notable:
+            subject += f" · ⭐ {len(notable)} notable"
+    elif notable:
+        subject = f"⭐ {len(notable)} notable update{'s' * (len(notable) != 1)}: {names(notable[:3])}"
+    elif posted:
+        subject = f"Routine posts only, no achievements ({len(posted)})"
     else:
         # Sent on purpose: an empty check still emails, so silence always means something is wrong
-        subject = f"✓ No new updates ({check}, {when}, {len(companies)} organisations checked)"
+        subject = "✓ No new updates"
+    subject += f" ({check}, {when})"
     webhook = os.environ.get("SLACK_WEBHOOK_URL")
     if webhook and send:
         for part in chunks(report):
             slack_post(webhook, part)
     if os.environ.get("GMAIL_APP_PASSWORD") and send:
-        email_send(report, subject)
+        email_send(render_html(posted, failed_sources, len(companies), args.days, len(held), check, when), subject)
     tracker_post(posted, check)
     if not webhook and not os.environ.get("GMAIL_APP_PASSWORD"):
         # Don't mark anything as seen: once an alert channel is connected, these items still get sent
