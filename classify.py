@@ -63,7 +63,7 @@ MEDIA = re.compile(
     re.I)
 
 TIER_A = [("Grant / funding", FUNDING), ("Award / recognition", AWARD), ("Award / recognition", RECOGNITION)]
-TIER_B = [("Partnership", PARTNERSHIP), ("Government", GOVERNMENT), ("Milestone / launch", MILESTONE),
+TIER_B = [("Government", GOVERNMENT), ("Partnership", PARTNERSHIP), ("Milestone / launch", MILESTONE),
           ("Announcement", ANNOUNCEMENT), ("Media / speaking", MEDIA)]
 TIER_NAMES = {"A": "Achievement", "B": "Notable", "C": "Routine"}
 NEWS = ("Google News", "Bing News")

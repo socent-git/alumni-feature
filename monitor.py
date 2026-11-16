@@ -476,38 +476,29 @@ def routine_groups(items):
 
 
 # ---------- highlights to evangelise ----------
-# How we refer to these organisations in a draft post; change to "our alumni", "our portfolio"…
-COMMUNITY = os.environ.get("COMMUNITY_PHRASE", "our community")
 MAX_HIGHLIGHTS = 5
 # Which notable kinds are worth promoting, strongest first (achievements always come before these)
 PROMOTE_ORDER = ["Government", "Partnership", "In the news", "Milestone / launch", "Media / speaking"]
-AMPLIFY = {
-    "Award / recognition": "Reshare their announcement with a congratulations note and tag the founder(s). "
-                           "Add it to the next newsletter / wins-of-the-month roundup.",
-    "Grant / funding": "Congratulate publicly and tag the funder. Share with funders and partners exploring this space.",
-    "Government": "Reshare, leading with the government adoption: a strong proof point for other state partnerships.",
-    "Partnership": "Reshare and tag both partners. Offer an introduction if others in the network could join.",
-    "In the news": "Share the article from our handle and add it to the media roundup.",
-    "Milestone / launch": "Reshare leading with the headline number or the new geography.",
-    "Media / speaking": "Reshare the talk or feature and quote one line from it.",
-}
+# How to amplify a highlight: one or more of three channels
+NEWSLETTER_KINDS = ("Grant / funding", "Award / recognition", "Government")
+
+
+def amplify(story):
+    """LinkedIn reshare (they posted it), LinkedIn post (only news covers it), newsletter (big-ticket items)."""
+    best = story["best"]
+    on_linkedin = "linkedin.com" in best["url"] or best["via"].startswith("LinkedIn")
+    channels = ["LinkedIn reshare" if on_linkedin else "LinkedIn post"]
+    if story["kind"] in NEWSLETTER_KINDS:
+        channels.append("Newsletter addition")
+    return channels
 
 
 def highlights(posted):
-    """The few stories worth promoting, each with a suggested action and a ready-to-edit draft post."""
+    """The few stories worth promoting, each tagged with how to amplify it."""
     picks = stories(posted, "A")
     notable = [s for s in stories(posted, "B") if s["kind"] in PROMOTE_ORDER]
     picks += sorted(notable, key=lambda s: PROMOTE_ORDER.index(s["kind"]))
-    out = []
-    for s in picks[:MAX_HIGHLIGHTS]:
-        people = s["best"].get("founders", [])[:2]
-        names = [s["company"]] + people
-        who = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
-        # Quote their own words rather than rewriting "we/our" into the third person
-        draft = (f"Congratulations to {who}! 👏 “{s['what'].rstrip('…')}{'…' if s['what'].endswith('…') else ''}” "
-                 f"Proud to see this from {COMMUNITY}. {s['best']['url']}")
-        out.append({**s, "action": AMPLIFY[s["kind"]], "draft": draft})
-    return out
+    return [{**s, "channels": amplify(s)} for s in picks[:MAX_HIGHLIGHTS]]
 
 
 def headline(posted, check, when):
@@ -538,11 +529,10 @@ def render(posted, failed_sources, n_companies, days, held=0, check="check", whe
         lines.append("\nNothing new since the last check.")
     top = highlights(posted)
     if top:
-        lines.append("\n📣 *HIGHLIGHTS TO EVANGELISE* (what to promote, how, and a draft post)")
+        lines.append("\n📣 *HIGHLIGHTS TO EVANGELISE*")
         for n, h in enumerate(top, 1):
             lines.append(f"*{n}. {h['company']}* — {h['kind']}: {esc(h['what'])}")
-            lines.append(f"How: {h['action']}")
-            lines.append(f"Draft post: {esc(h['draft'])}")
+            lines.append(f"Amplify via: {' + '.join(h['channels'])} · <{h['best']['url']}|open source>")
     for tier, emoji, name, about in SECTIONS:
         group = stories(posted, tier)
         if not group:
@@ -579,13 +569,12 @@ def render_html(posted, failed_sources, n_companies, days, held=0, check="check"
     top = highlights(posted)
     if top:
         out.append('<div style="background:#f3faf4;border:1px solid #cfe8d3;border-radius:6px;padding:10px 14px">'
-                   '<h3 style="margin:0 0 6px;color:#276749">📣 HIGHLIGHTS TO EVANGELISE '
-                   '<span style="font-weight:normal;font-size:12px;color:#666">'
-                   '(what to promote, how, and a draft post)</span></h3><ol style="margin:0">')
+                   '<h3 style="margin:0 0 6px;color:#276749">📣 HIGHLIGHTS TO EVANGELISE</h3>'
+                   '<ol style="margin:0">')
         for h in top:
             out.append(f'<li style="margin-bottom:10px"><b>{e(h["company"])}</b> — {e(h["kind"])}: {e(h["what"])}<br>'
-                       f'<span style="color:#276749"><b>How:</b></span> {e(h["action"])}<br>'
-                       f'<span style="font-size:13px;color:#444"><b>Draft post:</b> <i>{e(h["draft"])}</i></span></li>')
+                       f'<span style="color:#276749"><b>Amplify via:</b> {e(" + ".join(h["channels"]))}</span>'
+                       f' · {link(h["best"], "open source")}</li>')
         out.append("</ol></div>")
     for tier, emoji, name, about in SECTIONS:
         group = stories(posted, tier)

@@ -40,9 +40,10 @@ message is sorted into three parts (rules in `classify.py`):
 - **Routine posts:** hiring, calls for applications, events, greetings, staff reposts (one line per type)
 
 Each message opens with **📣 Highlights to evangelise**: up to 5 stories worth promoting (achievements
-first, then government, partnership, news, milestone and media items), each with a suggested way to
-amplify it and a draft post to edit. The draft says "our community"; set the `COMMUNITY_PHRASE`
-variable in the workflow to change that (e.g. "our alumni").
+first, then government, partnership, news, milestone and media items), each tagged with how to amplify it:
+**LinkedIn reshare** (the organisation posted it on LinkedIn), **LinkedIn post** (only a news article
+covers it, so we write our own) and **Newsletter addition** (grant or funding secured, award or
+recognition, government launch).
 
 If something important lands under Routine, add its phrase to the matching rule in `classify.py`.
 Test the rules without sending anything: `python3 monitor.py --dry-run --ignore-seen --days 7`.
