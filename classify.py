@@ -15,7 +15,7 @@ ROUTINE_RE = re.compile(
     r"#?hiring\b|\b(we('| a)re|is|are) hiring\b|\bvacanc|\bwalk-in\b|\bapply (by|now|here|today)\b|"
     r"\b(inviting|invites|calling for|call for) (applications|nominations|entries|proposals)\b|"
     r"\b(applications?|registrations?|nominations?) (are |is )?(now |still )?(open|closed|invited|live)\b|"
-    r"\blast (date|\d+ hours)\b|\bregister (now|here|today)\b|\bjoin us (for|on|at|in)\b|\bwebinar\b|"
+    r"\b(we('| a)re|we are) looking for\b|\blast (date|\d+ hours)\b|\bregister (now|here|today)\b|\bjoin us (for|on|at|in)\b|\bwebinar\b|"
     r"\bhappy (diwali|deepavali|holi|eid|christmas|new year|independence day|republic day|children'?s day)\b|"
     r"\bwishing (you|everyone)\b|\btake this poll\b|#rlpoll",
     re.I)
@@ -47,7 +47,7 @@ GOVERNMENT = re.compile(
     r"\b(launch\w*|inaugurat\w*|sign\w*|adopt\w*|releas\w*)\b[^.]{0,140}"
     r"\b(chief minister|hon'?ble|minister|governor|government of \w+|govt\.? of \w+|state government)\b", re.I)
 MILESTONE = re.compile(
-    r"\b(milestone|now reaching|reaching more|is now (in|live|available|reaching)|"
+    r"\b((major|new|big|key|important|significant|huge|\d+\w*) milestone|now reaching|reaching more|is now (in|live|available|reaching)|"
     r"expand(s|ed|ing)? (to|into|our|across)|expansion|scal(e|ed|ing) (to|up|across)|"
     r"launch(ed|es|ing)? (of|in|our|the|a|an)\b|"
     r"(served|reached|crossed|impacted) (over |more than |nearly )?(a |one |[\d,.]+ ?)(lakh|million|crore|k\b|\+)|"
@@ -78,8 +78,8 @@ NOISE = re.compile(r"#\w+|https?://\S+|[\U0001F000-\U0001FAFF☀-➿️‍]")
 
 def sentences(text):
     # Don't end a sentence at "Smt.", "Dr.", "Hon." and the like
-    text = re.sub(r"\b(Smt|Shri|Sri|Dr|Mr|Mrs|Ms|Prof|Hon|St|No|Rs)\.\s+", lambda m: m.group(1) + ".\u00a0", text)
-    return [s.replace("\u00a0", " ") for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+    text = re.sub(r"\b(Smt|Shri|Sri|Dr|Mr|Mrs|Ms|Prof|Hon|St|No|Rs)\.\s+", lambda m: m.group(1) + ".\x00", text)
+    return [s.replace("\x00", " ") for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
 
 
 def focus_text(title, summary, via):
@@ -120,7 +120,7 @@ def key_sentence(title, summary, via, kind=None, words=34):
     best = next((c for c in candidates[:6] if any(rx.search(c) for rx in rules)), candidates[0])
     best = NOISE.sub("", best)
     best = LEAD_IN.sub("", best.strip())
-    best = re.sub(r"\s+", " ", best).strip(" -–:,")
+    best = re.sub(r"\s+", " ", best).strip(" -–:,#*>")
     if best:
         best = best[0].upper() + best[1:]
     cut = best.rstrip("…").split()

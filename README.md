@@ -32,11 +32,15 @@ News is usually reported within about 6 hours of Google News picking it up.
 | Organisation's website RSS feed | Blog / news posts it publishes itself |
 
 Each source runs independently, so if one is down the others still report; the
-Slack message notes which source was unavailable. Items are tagged
-**Awards, recognition & funding** (award, won, finalist, prize, felicitated,
-recognised, special mention, 40 under 40, raised funding…) or **Update**, and each
-item is only ever reported once. Slack shows awards in full and other updates as one
-line per organisation; every item is logged in `data/updates.csv`.
+message notes which source was unavailable. Each item is only ever reported once, and every
+message is sorted into three parts (rules in `classify.py`):
+
+- **🏆 Achievements:** awards, recognition, grants, funding
+- **⭐ Notable updates:** partnerships, government launches, milestones, announcements, media and news coverage
+- **Routine posts:** hiring, calls for applications, events, greetings, staff reposts (one line per type)
+
+If something important lands under Routine, add its phrase to the matching rule in `classify.py`.
+Test the rules without sending anything: `python3 monitor.py --dry-run --ignore-seen --days 7`.
 
 **About LinkedIn:** no account is used, so no account can be restricted. The tool reads
 the same public company page anyone sees without signing in, one page every 4 seconds

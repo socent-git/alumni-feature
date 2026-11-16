@@ -40,7 +40,8 @@ SEEN = os.path.join(ROOT, "data", "seen.json")
 UPDATES = os.path.join(ROOT, "data", "updates.csv")
 UA = "Mozilla/5.0 (compatible; org-update-monitor/1.0)"
 EXA_URL = "https://mcp.exa.ai/mcp"
-JUNK_TITLE = re.compile(r'^(tags?|category|categories|author|topics?|archives?)\s*:|^"?[a-z0-9-]+"?$', re.I)
+JUNK_TITLE = re.compile(r'^(tags?|category|categories|author|topics?|archives?)\s*:|^"?[a-z0-9-]+"?$|'
+                        r'current affairs|daily updates for|\bquiz\b|\bmcqs?\b', re.I)
 
 # ---------- helpers ----------
 
