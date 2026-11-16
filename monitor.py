@@ -326,6 +326,7 @@ def collect(c, days, skip=()):
                                                      media_org="notable" in c.get("skip", ""))
             i["category"] = f"{classify.TIER_NAMES[i['tier']]}: {i['kind']}"
             i["company"] = c["name"]
+            i["founders"] = founders(c)
             found.append(i)
     return found, failed
 
@@ -474,6 +475,32 @@ def routine_groups(items):
     return groups
 
 
+# ---------- highlights to evangelise ----------
+MAX_HIGHLIGHTS = 5
+# Which notable kinds are worth promoting, strongest first (achievements always come before these)
+PROMOTE_ORDER = ["Government", "Partnership", "In the news", "Milestone / launch", "Media / speaking"]
+# How to amplify a highlight: one or more of three channels
+NEWSLETTER_KINDS = ("Grant / funding", "Award / recognition", "Government")
+
+
+def amplify(story):
+    """LinkedIn reshare (they posted it), LinkedIn post (only news covers it), newsletter (big-ticket items)."""
+    best = story["best"]
+    on_linkedin = "linkedin.com" in best["url"] or best["via"].startswith("LinkedIn")
+    channels = ["LinkedIn reshare" if on_linkedin else "LinkedIn post"]
+    if story["kind"] in NEWSLETTER_KINDS:
+        channels.append("Newsletter addition")
+    return channels
+
+
+def highlights(posted):
+    """The few stories worth promoting, each tagged with how to amplify it."""
+    picks = stories(posted, "A")
+    notable = [s for s in stories(posted, "B") if s["kind"] in PROMOTE_ORDER]
+    picks += sorted(notable, key=lambda s: PROMOTE_ORDER.index(s["kind"]))
+    return [{**s, "channels": amplify(s)} for s in picks[:MAX_HIGHLIGHTS]]
+
+
 def headline(posted, check, when):
     a, b = len(stories(posted, "A")), len(stories(posted, "B"))
     c = sum(i["tier"] == "C" for i in posted)
@@ -500,6 +527,12 @@ def render(posted, failed_sources, n_companies, days, held=0, check="check", whe
     lines = [f"*{title}*", glance]
     if not posted:
         lines.append("\nNothing new since the last check.")
+    top = highlights(posted)
+    if top:
+        lines.append("\n📣 *HIGHLIGHTS TO EVANGELISE*")
+        for n, h in enumerate(top, 1):
+            lines.append(f"*{n}. {h['company']}* — {h['kind']}: {esc(h['what'])}")
+            lines.append(f"Amplify via: {' + '.join(h['channels'])} · <{h['best']['url']}|open source>")
     for tier, emoji, name, about in SECTIONS:
         group = stories(posted, tier)
         if not group:
@@ -533,6 +566,16 @@ def render_html(posted, failed_sources, n_companies, days, held=0, check="check"
            f'<p style="margin:0 0 16px;font-size:15px"><b>{e(glance)}</b></p>']
     if not posted:
         out.append("<p>Nothing new since the last check.</p>")
+    top = highlights(posted)
+    if top:
+        out.append('<div style="background:#f3faf4;border:1px solid #cfe8d3;border-radius:6px;padding:10px 14px">'
+                   '<h3 style="margin:0 0 6px;color:#276749">📣 HIGHLIGHTS TO EVANGELISE</h3>'
+                   '<ol style="margin:0">')
+        for h in top:
+            out.append(f'<li style="margin-bottom:10px"><b>{e(h["company"])}</b> — {e(h["kind"])}: {e(h["what"])}<br>'
+                       f'<span style="color:#276749"><b>Amplify via:</b> {e(" + ".join(h["channels"]))}</span>'
+                       f' · {link(h["best"], "open source")}</li>')
+        out.append("</ol></div>")
     for tier, emoji, name, about in SECTIONS:
         group = stories(posted, tier)
         if not group:
