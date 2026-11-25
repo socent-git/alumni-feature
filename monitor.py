@@ -309,6 +309,8 @@ def collect(c, days, skip=()):
                 continue  # unknown or too old
             if JUNK_TITLE.search(i["title"]):
                 continue  # tag/category index pages
+            if excluded(c, f"{i['title']} {i['summary']}"):
+                continue  # a namesake, e.g. the government's SAMAVESH portal
             if label in ("Google News", "Bing News"):
                 headline = f"{i['title']} {i['url'].replace('-', ' ')}"
                 # Bing ignores quotes and matches loose words, so its headline must name the org.
@@ -396,7 +398,7 @@ def near(text, a, b, window=300):
 
 
 def three_checks(c, i):
-    """Returns the list of checks passed, e.g. ["org+founder", "org identity"]."""
+    """Returns the list of checks passed, e.g. ["org+founder", "org identity"]. See confirmed()."""
     slug = re.search(r"linkedin\.com/company/([^/?#]+)", c.get("linkedin", ""))
     if i["via"] in OWN_CHANNELS or (slug and f"/posts/{slug.group(1).lower()}_" in i["url"].lower()):
         return ["own channel"] * 3
@@ -409,6 +411,8 @@ def three_checks(c, i):
         except Exception:
             pass  # judge on the headline alone; it will usually score low and be held
     text = raw.lower()
+    if excluded(c, raw):
+        return []  # the full article shows it's a namesake
     names = [a.lower() for a in aliases(c)]
     org_in_text = mentions(c, text)
     founders_in = [f for f in founders(c) if re.search(r"(?<![a-z])" + re.escape(f.lower()) + r"(?![a-z])", text)]
@@ -416,7 +420,10 @@ def three_checks(c, i):
     passed = []
     if org_in_text and founders_in:
         passed.append("org+founder")
-    if mentions(c, i["title"], text) or (site and site in page + text) or (slug and slug.group(1).lower() in page):
+    # The org's own website or LinkedIn page linked or named in the article: proof beyond the name
+    if (site and site in page + text) or (slug and slug.group(1).lower() in page):
+        passed.append("org link")
+    if mentions(c, i["title"], text):
         passed.append("org identity")
     if any(f.lower() in i["title"].lower() for f in founders(c)) or any(
             near(text, f.lower(), n) for f in founders_in for n in names):
@@ -429,6 +436,21 @@ def three_checks(c, i):
         if hits >= 2 and INDIA_RE.search(raw):
             passed.append("org prominent")
     return passed
+
+
+# Signals that tie an item to this organisation beyond its name. Name-only signals ("org identity",
+# "org prominent") can all fire for a namesake: on 24 Nov the government's SAMAVESH portal passed both,
+# as did news about a "Madhi" pilgrimage site. So a news item needs a founder or the org's own link.
+INDEPENDENT = {"own channel", "org+founder", "founder link", "org link"}
+
+
+def confirmed(checks):
+    return len(checks) >= 2 and bool(INDEPENDENT & set(checks))
+
+
+def excluded(c, text):
+    """Phrases that mean the story is about something else with the same name (companies.csv `exclude`)."""
+    return any(p.strip() and p.strip().lower() in text.lower() for p in c.get("exclude", "").split("|"))
 
 
 def slack_post(webhook, text):
@@ -714,8 +736,8 @@ def main():
     with ThreadPoolExecutor(args.workers * 2) as pool:
         for i, passed in zip(new, pool.map(lambda i: three_checks(by_name[i["company"]], i), new)):
             i["checks"] = passed
-    held = [i for i in new if len(i["checks"]) < 2]
-    posted = [i for i in new if len(i["checks"]) >= 2]
+    held = [i for i in new if not confirmed(i["checks"])]
+    posted = [i for i in new if confirmed(i["checks"])]
     print(f"Three-layer check: {len(posted)} passed, {len(held)} held for review", file=sys.stderr)
 
     check = "news check" if args.news_only else "daily check"
