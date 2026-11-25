@@ -542,7 +542,16 @@ def footer_notes(failed_sources, n_companies, held):
     return notes
 
 
-def render(posted, failed_sources, n_companies, days, held=0, check="check", when=""):
+def unconfirmed_mentions(held):
+    """News that names the org but has no founder or own-link evidence: could be a namesake, shown separately."""
+    return [i for i in held if i["via"].startswith(("Google News", "Bing News"))
+            and {"org identity", "org prominent"} & set(i["checks"])]
+
+
+MAX_UNCONFIRMED = 10
+
+
+def render(posted, failed_sources, n_companies, days, held=0, check="check", when="", unconfirmed=()):
     """Plain-text report (Slack formatting): summary first, routine posts last."""
     esc = lambda t: t.replace("<", "‹").replace(">", "›").replace("|", "¦")
     title, glance = headline(posted, check, when)
@@ -574,11 +583,18 @@ def render(posted, failed_sources, n_companies, days, held=0, check="check", whe
             orgs = ", ".join(f"<{v[0]['url']}|{esc(k)}>" + (f" ×{len(v)}" if len(v) > 1 else "")
                              for k, v in sorted(routine[kind].items()))
             lines.append(f"{kind}: {orgs}")
-    lines.append("\n_" + " ".join(footer_notes(failed_sources, n_companies, held)) + "_")
+    if unconfirmed:
+        lines.append(f"\n❔ *UNCONFIRMED MENTIONS* ({len(unconfirmed)}) — names the organisation, but no founder or "
+                     f"link to its website/LinkedIn; may be a namesake, check before sharing")
+        for i in sorted(unconfirmed, key=lambda x: x["published"], reverse=True)[:MAX_UNCONFIRMED]:
+            lines.append(f"• *{i['company']}*: <{i['url']}|{esc(i['title'])}> · {i['published']:%d %b}")
+        if len(unconfirmed) > MAX_UNCONFIRMED:
+            lines.append(f"_+{len(unconfirmed) - MAX_UNCONFIRMED} more in the live sheet_")
+    lines.append("\n_" + " ".join(footer_notes(failed_sources, n_companies, held - len(unconfirmed))) + "_")
     return "\n".join(lines)
 
 
-def render_html(posted, failed_sources, n_companies, days, held=0, check="check", when=""):
+def render_html(posted, failed_sources, n_companies, days, held=0, check="check", when="", unconfirmed=()):
     """The same report as an email: headings, numbered achievements, one line each."""
     e = html.escape
     link = lambda i, text: f'<a href="{e(i["url"], quote=True)}">{e(text)}</a>'
@@ -621,8 +637,18 @@ def render_html(posted, failed_sources, n_companies, days, held=0, check="check"
             orgs = ", ".join(link(v[0], k) + (f" ×{len(v)}" if len(v) > 1 else "")
                              for k, v in sorted(routine[kind].items()))
             out.append(f'<p style="margin:4px 0;font-size:13px;color:#444"><b>{e(kind)}:</b> {orgs}</p>')
+    if unconfirmed:
+        out.append(f'<h3 style="margin:18px 0 4px;color:#8a6d1f">❔ Unconfirmed mentions ({len(unconfirmed)})</h3>'
+                   '<p style="margin:0 0 6px;font-size:12px;color:#666">These name the organisation but no founder, and '
+                   "don't link its website or LinkedIn. Some may be about a namesake: check before sharing.</p><ul>")
+        for i in sorted(unconfirmed, key=lambda x: x["published"], reverse=True)[:MAX_UNCONFIRMED]:
+            out.append(f'<li style="font-size:13px;margin-bottom:4px"><b>{e(i["company"])}</b>: '
+                       f'{link(i, i["title"])} <span style="color:#777">· {i["published"]:%d %b}</span></li>')
+        out.append("</ul>")
+        if len(unconfirmed) > MAX_UNCONFIRMED:
+            out.append(f'<p style="font-size:12px;color:#666">+{len(unconfirmed) - MAX_UNCONFIRMED} more in the live sheet.</p>')
     out.append('<p style="margin-top:18px;font-size:12px;color:#777">'
-               + e(" ".join(footer_notes(failed_sources, n_companies, held))) + "</p></div>")
+               + e(" ".join(footer_notes(failed_sources, n_companies, held - len(unconfirmed)))) + "</p></div>")
     return "\n".join(out)
 
 
@@ -738,11 +764,12 @@ def main():
             i["checks"] = passed
     held = [i for i in new if not confirmed(i["checks"])]
     posted = [i for i in new if confirmed(i["checks"])]
+    unconfirmed = unconfirmed_mentions(held)
     print(f"Three-layer check: {len(posted)} passed, {len(held)} held for review", file=sys.stderr)
 
     check = "news check" if args.news_only else "daily check"
     when = datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%d %b, %I:%M %p IST")
-    report = render(posted, failed_sources, len(companies), args.days, len(held), check, when)
+    report = render(posted, failed_sources, len(companies), args.days, len(held), check, when, unconfirmed)
     print(report)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
@@ -751,7 +778,7 @@ def main():
     if args.dry_run:
         return
 
-    send = not (args.quiet and not posted)
+    send = not (args.quiet and not posted and not unconfirmed)
     top, notable = stories(posted, "A"), stories(posted, "B")
     names = lambda group: ", ".join(dict.fromkeys(s["company"] for s in group))
     if top:
@@ -764,14 +791,17 @@ def main():
         subject = f"Routine posts only, no achievements ({len(posted)})"
     else:
         # Sent on purpose: an empty check still emails, so silence always means something is wrong
-        subject = "✓ No new updates"
+        subject = "✓ No confirmed updates" if unconfirmed else "✓ No new updates"
+    if unconfirmed:
+        subject += f" · ❔ {len(unconfirmed)} unconfirmed"
     subject += f" ({check}, {when})"
     webhook = os.environ.get("SLACK_WEBHOOK_URL")
     if webhook and send:
         for part in chunks(report):
             slack_post(webhook, part)
     if os.environ.get("GMAIL_APP_PASSWORD") and send:
-        email_send(render_html(posted, failed_sources, len(companies), args.days, len(held), check, when), subject)
+        email_send(render_html(posted, failed_sources, len(companies), args.days, len(held), check, when,
+                               unconfirmed), subject)
     tracker_post(posted, check)
     if not webhook and not os.environ.get("GMAIL_APP_PASSWORD"):
         # Don't mark anything as seen: once an alert channel is connected, these items still get sent
@@ -793,7 +823,8 @@ def main():
                         "title", "url"])
         for i in new:
             w.writerow([today, i["company"], i["category"], i["via"], i["published"].strftime("%Y-%m-%d"),
-                        "posted" if i in posted else "held", "; ".join(i["checks"]), i["title"], i["url"]])
+                        "posted" if i in posted else "unconfirmed" if i in unconfirmed else "held",
+                        "; ".join(i["checks"]), i["title"], i["url"]])
 
 
 if __name__ == "__main__":
