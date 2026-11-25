@@ -82,6 +82,7 @@ After that it runs by itself every 3 days.
 | `founders` | Founders / leaders, separated by `\|`; their names are searched in award news |
 | `context` | For generic names (e.g. "Karya", "STEP"): a result must also contain one of these words, `\|`-separated |
 | `skip` | `website` to ignore the org's own feed (e.g. IDR, which publishes daily) |
+| `exclude` | Phrases that mean a story is about a namesake, `\|`-separated; such stories are dropped (e.g. SAMAVESH: `e-Anudaan\|Ministry of Social Justice`, the government portal) |
 
 When you add organisations, leave `linkedin` and `founders` blank and run
 `python3 find_founders.py` (people search; accepts only a current founder/CEO role at
