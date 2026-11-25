@@ -45,6 +45,10 @@ first, then government, partnership, news, milestone and media items), each tagg
 covers it, so we write our own) and **Newsletter addition** (grant or funding secured, award or
 recognition, government launch).
 
+News that names an organisation but has no founder and no link to its website or LinkedIn is not
+counted as confirmed; it appears at the bottom of each message under **❔ Unconfirmed mentions** (up to
+10, newest first) so it can be checked by eye. In `data/updates.csv` these rows have status `unconfirmed`.
+
 If something important lands under Routine, add its phrase to the matching rule in `classify.py`.
 Test the rules without sending anything: `python3 monitor.py --dry-run --ignore-seen --days 7`.
 
